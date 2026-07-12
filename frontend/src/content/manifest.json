@@ -1,0 +1,26 @@
+[
+  {
+    "id": "basics",
+    "label": "Basics",
+    "items": [
+      { "slug": "kalshi-101", "title": "Kalshi 101 (for dummies)" },
+      { "slug": "glossary", "title": "Glossary" }
+    ]
+  },
+  {
+    "id": "playbook",
+    "label": "Playbook",
+    "items": [
+      { "slug": "strategies", "title": "Strategies" },
+      { "slug": "bankroll", "title": "Bankroll & risk" },
+      { "slug": "taxes", "title": "Taxes" }
+    ]
+  },
+  {
+    "id": "system",
+    "label": "This system",
+    "items": [
+      { "slug": "how-this-works", "title": "How this dashboard works" }
+    ]
+  }
+]

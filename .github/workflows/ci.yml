@@ -1,0 +1,157 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  python:
+    name: python tests (money math)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest
+      - run: python -m pytest kalshi/tests/ -q
+
+  node:
+    name: frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  docker-build:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build -t kalseer:ci .
+
+  docker-smoke:
+    name: docker smoke (boot + index + data mount)
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t kalseer:ci .
+      - name: boot + curl
+        run: |
+          mkdir -p /tmp/kalseer-public
+          echo '{"ok":true}' > /tmp/kalseer-public/status.json
+          docker run -d --name kalseer -p 8080:8080 \
+            -v /tmp/kalseer-public:/usr/share/nginx/html/data:ro kalseer:ci
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8080/ >/dev/null \
+               && curl -sf http://localhost:8080/data/status.json >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "smoke failed"; docker logs kalseer; exit 1
+      - name: teardown
+        if: always()
+        run: docker rm -f kalseer || true
+
+  docker-push:
+    name: docker push to ghcr.io
+    runs-on: ubuntu-latest
+    needs: [python, node, docker-smoke]
+    # Push on commits to main and on semver tag pushes. Skip on PRs and
+    # the weekly cron — those are validation only.
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # main pushes  -> :<sha-7>, :edge
+          # tag pushes   -> :vX.Y.Z, :X.Y.Z, :X.Y, :latest
+          tags: |
+            type=sha,prefix=,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  bump-manifests:
+    name: bump dev image tag in eregion-manifests
+    runs-on: ubuntu-latest
+    needs: docker-push
+    # Only on main branch pushes. Tag pushes (staging promotion) and PRs
+    # do not touch any values file — those are immutable artifacts /
+    # validation-only. Owner-gated: forks won't have MANIFESTS_PAT or a
+    # manifests repo — delete or adapt this job for your own GitOps setup.
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.repository_owner == 'awall451'
+    steps:
+      - name: checkout eregion-manifests
+        uses: actions/checkout@v4
+        with:
+          repository: awall451/eregion-manifests
+          token: ${{ secrets.MANIFESTS_PAT }}
+          ref: main
+          persist-credentials: true
+      - name: bump image.tag
+        run: |
+          SHORT="${GITHUB_SHA::7}"
+          yq -i ".image.tag = \"${SHORT}\"" values/kalseer/dev.yaml
+      - name: commit + push
+        run: |
+          git config user.name  "homelab-ci"
+          git config user.email "ci@homelab.local"
+          if git diff --quiet -- values/kalseer/dev.yaml; then
+            echo "no change — image tag already current"
+            exit 0
+          fi
+          SHORT="${GITHUB_SHA::7}"
+          git add values/kalseer/dev.yaml
+          git commit -m "kalseer/dev: bump image.tag to ${SHORT}
+
+          Automated by kalseer CI (commit ${GITHUB_SHA})."
+          git push

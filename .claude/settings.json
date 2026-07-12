@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 kalshi/paper.py *)",
+      "Bash(python3 kalshi/scanner.py *)",
+      "Bash(python3 -c *)",
+      "Bash(curl -s https://api.elections.kalshi.com/*)",
+      "Bash(curl -s https://api.weather.gov/*)",
+      "Bash(curl -s https://gasprices.aaa.com/*)",
+      "Bash(curl -s * https://api.elections.kalshi.com/*)",
+      "Bash(curl -s * https://api.weather.gov/*)",
+      "WebSearch",
+      "WebFetch(domain:gasprices.aaa.com)",
+      "WebFetch(domain:api.weather.gov)",
+      "WebFetch(domain:www.rottentomatoes.com)",
+      "WebFetch(domain:rottentomatoes.com)",
+      "WebFetch(domain:www.clevelandfed.org)",
+      "WebFetch(domain:portwatch.imf.org)",
+      "WebFetch(domain:forecast.weather.gov)",
+      "Read(./**)",
+      "Write(data/**)",
+      "Edit(data/**)"
+    ]
+  }
+}

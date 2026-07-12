@@ -1,0 +1,10 @@
+services:
+  dashboard:
+    image: nginx:alpine
+    container_name: kalseer
+    ports:
+      - "${KALSEER_PORT:-8085}:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ${KALSEER_DATA_DIR:-./data}/public:/usr/share/nginx/html/data:ro
+    restart: unless-stopped

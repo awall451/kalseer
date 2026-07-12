@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kalseer.fullname" . }}
+  labels:
+    {{- include "kalseer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kalseer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kalseer.selectorLabels" . | nindent 8 }}
+      {{- if .Values.dataSync.enabled }}
+      annotations:
+        # nginx conf is mounted via subPath (no hot reload) — roll the
+        # pod when it changes.
+        checksum/nginx-conf: {{ include (print $.Template.BasePath "/configmap-nginx.yaml") . | sha256sum }}
+      {{- end }}
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- if .Values.dataSync.enabled }}
+          volumeMounts:
+            - name: gitsync
+              mountPath: /gitsync
+              readOnly: true
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.dataSync.enabled }}
+        - name: git-sync
+          image: {{ .Values.dataSync.image }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - --repo={{ required "dataSync.repo is required when dataSync.enabled" .Values.dataSync.repo }}
+            - --ref={{ .Values.dataSync.ref }}
+            - --period={{ .Values.dataSync.period }}
+            - --depth=1
+            - --root=/gitsync
+            - --link=repo
+          {{- if include "kalseer.gitsyncHasCreds" . }}
+          env:
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kalseer.gitsyncSecretName" . }}
+                  key: username
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kalseer.gitsyncSecretName" . }}
+                  key: password
+          {{- end }}
+          volumeMounts:
+            - name: gitsync
+              mountPath: /gitsync
+          resources:
+            {{- toYaml .Values.dataSync.resources | nindent 12 }}
+        {{- end }}
+      {{- if .Values.dataSync.enabled }}
+      volumes:
+        - name: gitsync
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: {{ include "kalseer.fullname" . }}-nginx
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

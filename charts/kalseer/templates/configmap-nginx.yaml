@@ -1,0 +1,24 @@
+{{- if .Values.dataSync.enabled }}
+# Overrides the image's default server config: same SPA root, plus /data/
+# aliased into the git-sync checkout. git-sync updates atomically by
+# flipping the /gitsync/repo symlink; nginx follows it per-request.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kalseer.fullname" . }}-nginx
+  labels:
+    {{- include "kalseer.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen       8080;
+        listen  [::]:8080;
+        server_name  _;
+        root   /usr/share/nginx/html;
+        index  index.html;
+
+        location /data/ {
+            alias /gitsync/repo/{{ .Values.dataSync.subPath }}/;
+        }
+    }
+{{- end }}

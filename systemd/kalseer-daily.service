@@ -1,0 +1,17 @@
+# Template — copy to ~/.config/systemd/user/ and replace /path/to/kalseer
+# (and add Environment= lines for KALSEER_* config as needed).
+[Unit]
+Description=Kalseer morning brief pipeline (paper trading)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/kalseer
+ExecStart=/path/to/kalseer/bin/daily.sh
+# Ensure the claude CLI and docker are on PATH for the user service:
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Example config:
+# Environment=KALSEER_DATA_DIR=%h/kalseer-data
+# Environment=KALSEER_PORT=8085
+TimeoutStartSec=45min

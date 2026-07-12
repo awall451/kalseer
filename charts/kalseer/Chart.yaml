@@ -1,0 +1,19 @@
+apiVersion: v2
+name: kalseer
+description: |
+  Kalshi paper-trading morning-brief dashboard. Static SPA on
+  unprivileged nginx; runtime trading data arrives via an optional
+  git-sync sidecar pulling a (private) data repo — no data in the image.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kalshi
+  - paper-trading
+  - dashboard
+home: https://github.com/awall451/kalseer
+sources:
+  - https://github.com/awall451/kalseer
+maintainers:
+  - name: awall451
+    url: https://github.com/awall451

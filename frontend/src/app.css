@@ -1,0 +1,163 @@
+/* Design tokens — reference dataviz palette, light + dark selected steps */
+:root {
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --series-1: #2a78d6;      /* categorical slot 1: blue */
+  --series-1-soft: rgba(42, 120, 214, 0.10);
+  --good: #0ca30c;          /* status: good  */
+  --good-text: #006300;     /* delta ↑ good text on light */
+  --critical: #d03b3b;      /* status: critical */
+  --warning: #fab219;       /* status: warning */
+  --chip: #f0efec;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --series-1: #3987e5;
+    --series-1-soft: rgba(57, 135, 229, 0.12);
+    --good-text: #0ca30c;
+    --chip: #26262a;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.wrap { max-width: 1060px; margin: 0 auto; padding: 20px 20px 64px; }
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+
+.mono { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 0.88em; }
+
+h1, h2, h3 { margin: 0; font-weight: 650; }
+a { color: var(--series-1); }
+
+.muted { color: var(--muted); }
+.ink2 { color: var(--ink-2); }
+
+/* ── Wiki prose ─────────────────────────────────────────────────────────── */
+.prose { line-height: 1.65; font-size: 15px; }
+.prose h1 { font-size: 26px; margin: 0 0 14px; }
+.prose h2 { font-size: 19px; margin: 26px 0 8px; }
+.prose h3 { font-size: 16px; margin: 20px 0 6px; }
+.prose p { margin: 0 0 12px; }
+.prose ul, .prose ol { margin: 0 0 12px; padding-left: 22px; }
+.prose li { margin: 3px 0; }
+.prose code {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.86em;
+  background: var(--chip);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.prose pre {
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+.prose pre code { background: none; padding: 0; }
+.prose blockquote {
+  margin: 0 0 12px;
+  padding: 4px 14px;
+  border-left: 3px solid var(--axis);
+  color: var(--ink-2);
+}
+.prose table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  width: 100%;
+  font-size: 14px;
+}
+.prose th, .prose td {
+  border: 1px solid var(--grid);
+  padding: 6px 10px;
+  text-align: left;
+}
+.prose th { background: var(--chip); font-weight: 600; }
+.prose hr { border: 0; border-top: 1px solid var(--grid); margin: 20px 0; }
+.prose a { color: var(--series-1); }
+
+/* ── Wiki admonitions (MkDocs-style callouts) ───────────────────────────── */
+.admonition {
+  margin: 1rem 0;
+  border-left: 4px solid var(--admo-color);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--admo-color) 9%, transparent);
+  padding: 0.6rem 0.9rem;
+}
+.admonition-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--admo-color);
+  margin-bottom: 0.35rem;
+}
+.admonition-body { font-size: 0.92em; }
+.admonition-body > :first-child { margin-top: 0; }
+.admonition-body > :last-child { margin-bottom: 0; }
+.admonition-note { --admo-color: var(--muted); }
+.admonition-info { --admo-color: var(--series-1); }
+.admonition-tip { --admo-color: var(--good); }
+.admonition-success { --admo-color: var(--good); }
+.admonition-question { --admo-color: var(--series-1); }
+.admonition-warning { --admo-color: var(--warning); }
+.admonition-danger { --admo-color: var(--critical); }
+.admonition-example { --admo-color: #8b5cf6; }
+.admonition-quote { --admo-color: var(--muted); }
+
+/* ── Wiki table of contents ──────────────────────────────────────────────── */
+.wiki-toc {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chip);
+}
+.wiki-toc-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  list-style-position: inside;
+}
+.wiki-toc[open] .wiki-toc-title { margin-bottom: 0.4rem; }
+.wiki-toc ul { list-style: none; margin: 0; padding: 0; }
+.wiki-toc li { margin: 0.15rem 0; }
+.wiki-toc li.toc-l3 { margin-left: 1rem; }
+.wiki-toc a { font-size: 0.875rem; color: var(--series-1); text-decoration: none; }
+.wiki-toc a:hover { text-decoration: underline; }

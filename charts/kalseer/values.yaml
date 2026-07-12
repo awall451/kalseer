@@ -1,0 +1,109 @@
+# Defaults for the kalseer Helm chart. Vanilla Kubernetes — no
+# assumptions about Tailscale, Sealed Secrets, or any specific cluster.
+# Override per environment with --set, -f overlays, or a parent
+# `values:` block in an Argo Application.
+
+image:
+  repository: ghcr.io/awall451/kalseer
+  # Default tag intentionally empty so installs fail loudly rather than
+  # silently pulling :latest. Pin to a SHA, semver, or ":edge" yourself.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  # nginx-unprivileged listens on 8080
+  targetPort: 8080
+
+# Standard Kubernetes Ingress. Compatible with ingress-nginx, Traefik,
+# Tailscale Operator (set defaultBackend.enabled=true for the Tailscale
+# style, which doesn't use rules), and most others.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # Tailscale Operator: tailscale.com/hostname: kalseer-dev
+  hosts:
+    - host: kalseer.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Tailscale-style: single defaultBackend, no rules. When `enabled`,
+  # `hosts` is ignored. `tls.hosts` should be the bare hostname (the
+  # operator combines it with the tailnet suffix).
+  defaultBackend:
+    enabled: false
+
+# The dashboard's runtime JSON (./data/*) comes from a git repo that the
+# pipeline pushes to (see the root README). When enabled, a git-sync
+# sidecar keeps a checkout in a shared emptyDir and an nginx config
+# override serves <repo>/<subPath>/ at /data/.
+dataSync:
+  enabled: false
+  image: registry.k8s.io/git-sync/git-sync:v4.4.0
+  # HTTPS clone URL, e.g. https://github.com/<you>/kalseer-data
+  repo: ""
+  ref: main
+  # Seconds between polls of the data repo.
+  period: 60s
+  # Directory inside the data repo that publish.py owns (served at /data/).
+  subPath: public
+  # Credentials for a private data repo, via ONE of:
+  #   a) existingSecret: name of a Secret with keys `username` + `password`
+  #      (for a GitHub fine-grained PAT: username can be anything non-empty,
+  #      password is the token).
+  #   b) plain `username` / `password` values. DEV / TEST ONLY.
+  #   c) sealed.username / sealed.password: kubeseal-encrypted bytes
+  #      (requires the bitnami-labs/sealed-secrets controller).
+  # Precedence: existingSecret > plain > sealed. Leave all empty for a
+  # public data repo.
+  existingSecret: ""
+  username: ""
+  password: ""
+  sealed:
+    username: ""
+    password: ""
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  readiness:
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# nginx-unprivileged runs as uid 101 natively; git-sync as 65533.
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+nameOverride: ""
+fullnameOverride: ""
