@@ -32,6 +32,36 @@
   }
 
   const fmt$ = (v) => '$' + Number(v).toFixed(2)
+  const fmtSigned$ = (v) => (v < 0 ? '−$' : '+$') + Math.abs(Number(v)).toFixed(2)
+  const cents = (v) => Math.round(v * 100) + '¢'
+  // Tile tone: mark is quoted for OUR side, so mark above entry = winning.
+  const tone = (delta) =>
+    delta == null ? 'flat' : delta > 0.02 ? 'good' : delta < -0.02 ? 'bad' : 'flat'
+
+  // Kalshi encodes one binary market per strike of a scalar event
+  // (SERIES-EVENT-STRIKE). Group same-event entries so a researched
+  // strike ladder reads as one event instead of near-duplicate tickers.
+  function groupConsidered(list) {
+    const groups = []
+    const byEvent = new Map()
+    for (const c of list) {
+      const parts = c.ticker.split('-')
+      const event = parts.length > 2 ? parts.slice(0, -1).join('-') : c.ticker
+      const strike = parts.length > 2 ? parts[parts.length - 1] : ''
+      if (!byEvent.has(event)) {
+        const g = { event, series: parts[0], items: [] }
+        byEvent.set(event, g)
+        groups.push(g)
+      }
+      byEvent.get(event).items.push({ ...c, strike })
+    }
+    return groups
+  }
+
+  function seriesLabel(series) {
+    const slug = slugs?.[series]
+    return slug ? slug.replace(/-/g, ' ') : ''
+  }
 
   async function getJson(path) {
     const r = await fetch(path, { cache: 'no-store' })
@@ -39,9 +69,37 @@
     return r.json()
   }
 
-  async function loadBrief(date, updateHash = true) {
+  // Spoken brief: the pipeline may publish brief-<date>.mp3 next to the
+  // JSON (see kalshi/speak.py). Show the speaker only when it exists.
+  let audioUrl = $state(null)
+  let audioEl = $state(null)
+  let playing = $state(false)
+
+  async function checkAudio(date) {
+    if (audioEl && !audioEl.paused) audioEl.pause()
+    playing = false
+    audioUrl = null
+    try {
+      const r = await fetch(`./data/brief-${date}.mp3`, { method: 'HEAD', cache: 'no-store' })
+      if (r.ok) audioUrl = `./data/brief-${date}.mp3`
+    } catch {}
+  }
+
+  function toggleAudio() {
+    if (!audioEl) return
+    if (audioEl.paused) audioEl.play()
+    else audioEl.pause()
+  }
+
+  async function loadBrief(date) {
     selected = date
-    if (updateHash) location.hash = `#/${date}`
+    // Date picks never persist into the URL — a refresh always lands on
+    // the newest brief. (#/<date> still works as a one-shot deep link;
+    // it's cleaned here after loading.)
+    if (/^#\/?\d{4}-\d{2}-\d{2}$/.test(location.hash)) {
+      history.replaceState(null, '', location.pathname + location.search)
+    }
+    checkAudio(date)
     brief = null
     try {
       brief = await getJson(`./data/brief-${date}.json`)
@@ -76,7 +134,7 @@
     }
     const fromHash = location.hash.replace(/^#\//, '')
     if (fromHash.startsWith('wiki')) {
-      await loadBrief(dates[0], false)
+      await loadBrief(dates[0])
       routeFromHash()
     } else {
       await loadBrief(dates.includes(fromHash) ? fromHash : dates[0])
@@ -138,18 +196,72 @@
 
     <section class="brief-head">
       <h2>Daily brief</h2>
-      <select
-        value={selected}
-        onchange={(e) => loadBrief(e.currentTarget.value)}
-        aria-label="Brief date"
-      >
-        {#each dates as d}
-          <option value={d}>{d}</option>
-        {/each}
-      </select>
+      <div class="brief-controls">
+        {#if audioUrl}
+          <button class="speak" onclick={toggleAudio} title={playing ? 'Pause' : 'Read the brief aloud'}
+                  aria-label={playing ? 'Pause spoken brief' : 'Play spoken brief'}>
+            {playing ? '⏸' : '🔊'}
+          </button>
+          <audio bind:this={audioEl} src={audioUrl} preload="none"
+                 onended={() => (playing = false)} onpause={() => (playing = false)}
+                 onplay={() => (playing = true)}></audio>
+        {/if}
+        <select
+          value={selected}
+          onchange={(e) => loadBrief(e.currentTarget.value)}
+          aria-label="Brief date"
+        >
+          {#each dates as d}
+            <option value={d}>{d}</option>
+          {/each}
+        </select>
+      </div>
     </section>
 
     {#if brief && !brief.missing}
+      {@const showLive = selected === dates[0] && agg?.open_positions?.length}
+      {#if showLive || brief.trades_settled?.length}
+        <section class="pos-grid">
+          {#each brief.trades_settled ?? [] as t}
+            <a class="pos-tile {t.won ? 'good' : 'bad'}" href={marketUrl(t.ticker, slugs)}
+               target="_blank" rel="noopener">
+              <div class="pos-title">{t.title || t.ticker}</div>
+              <div class="pos-line">
+                <span class="mono side">{(t.side ?? '').toUpperCase()}</span>
+                <span class="chipw {t.won ? 'win' : 'loss'}">{t.won ? 'WIN' : 'LOSS'}</span>
+                <span class="mono">{fmtSigned$(t.pnl)}</span>
+              </div>
+              <div class="muted pos-sub">settled {selected}</div>
+            </a>
+          {/each}
+          {#if showLive}
+            {#each agg.open_positions as p}
+              {@const delta = p.mark != null ? p.mark - p.entry_price : null}
+              {@const day = p.mark != null && p.mark_prev != null ? p.mark - p.mark_prev : null}
+              <a class="pos-tile {tone(delta)}" href={marketUrl(p.ticker, slugs)}
+                 target="_blank" rel="noopener">
+                <div class="pos-title">{p.title || p.ticker}</div>
+                <div class="pos-line">
+                  <span class="mono side">{p.side.toUpperCase()}</span>
+                  <span class="mono">{cents(p.entry_price)} → {p.mark != null ? cents(p.mark) : '—'}</span>
+                  {#if day != null}
+                    <span class="pos-arrow">{day > 0.005 ? '↑' : day < -0.005 ? '↓' : '→'}</span>
+                  {/if}
+                </div>
+                <div class="muted pos-sub">
+                  {#if delta != null}
+                    {delta >= 0 ? '+' : '−'}{Math.abs(Math.round(delta * 100))}¢ vs entry ·
+                    {fmtSigned$(delta * p.contracts)} at market
+                  {:else}
+                    no market mark yet
+                  {/if}
+                </div>
+              </a>
+            {/each}
+          {/if}
+        </section>
+      {/if}
+
       <section class="card narrative">
         {@html renderMd(brief.narrative)}
       </section>
@@ -171,12 +283,35 @@
       {#if brief.considered_but_passed?.length}
         <h3 class="sect">Considered, passed</h3>
         <div class="card">
-          {#each brief.considered_but_passed as c}
-            <div class="passed">
-              <a class="mono" href={marketUrl(c.ticker, slugs)} target="_blank"
-                 rel="noopener">{c.ticker} ↗</a>
-              <span class="ink2">{c.why}</span>
-            </div>
+          {#each groupConsidered(brief.considered_but_passed) as g}
+            {#if g.items.length > 1}
+              <div class="passed-group">
+                <div class="passed-head">
+                  <a class="mono" href={marketUrl(g.items[0].ticker, slugs)} target="_blank"
+                     rel="noopener">{g.event} ↗</a>
+                  {#if seriesLabel(g.series)}
+                    <span class="muted">{seriesLabel(g.series)} — one market per strike</span>
+                  {/if}
+                </div>
+                {#each g.items as c}
+                  <div class="passed strike-row">
+                    <span class="mono strike">{c.strike}</span>
+                    <span class="ink2">{c.why}</span>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <div class="passed">
+                <div class="passed-head">
+                  <a class="mono" href={marketUrl(g.items[0].ticker, slugs)} target="_blank"
+                     rel="noopener">{g.items[0].ticker} ↗</a>
+                  {#if seriesLabel(g.series)}
+                    <span class="muted">{seriesLabel(g.series)}</span>
+                  {/if}
+                </div>
+                <div class="ink2 passed-why">{g.items[0].why}</div>
+              </div>
+            {/if}
           {/each}
         </div>
       {/if}
@@ -239,6 +374,18 @@
     display: flex; align-items: center; justify-content: space-between;
     margin: 26px 0 10px;
   }
+  .brief-controls { display: flex; align-items: center; gap: 10px; }
+  .speak {
+    background: var(--chip);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 16px;
+    line-height: 1;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .speak:hover { border-color: var(--series-1); }
   select {
     background: var(--surface-1); color: var(--ink);
     border: 1px solid var(--border); border-radius: 8px;
@@ -247,6 +394,58 @@
   .narrative :global(p) { margin: 0 0 12px; }
   .narrative :global(p:last-child) { margin-bottom: 0; }
   .sect { font-size: 15px; margin: 22px 0 4px; }
-  .passed { display: flex; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
+  .pos-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .pos-tile {
+    display: block;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 9px;
+    padding: 10px 12px;
+    color: inherit;
+    text-decoration: none;
+  }
+  .pos-tile.good { border-left-color: var(--good); }
+  .pos-tile.bad { border-left-color: var(--critical); }
+  .pos-tile.flat { border-left-color: var(--warning); }
+  .pos-title {
+    font-weight: 600;
+    font-size: 13.5px;
+    margin-bottom: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pos-line { display: flex; gap: 10px; align-items: baseline; }
+  .pos-arrow { font-size: 15px; }
+  .pos-sub { font-size: 12px; margin-top: 4px; }
+  .side { color: var(--ink-2); }
+  .chipw { border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: 650; }
+  .chipw.win { background: var(--series-1-soft); color: var(--good-text); }
+  .chipw.loss { background: var(--series-1-soft); color: var(--critical); }
+  .passed { padding: 6px 0; }
+  .passed-group { padding: 6px 0; }
+  .passed-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .passed-why { margin-top: 2px; }
+  /* chip column stays put; reasoning wraps within its own column */
+  .strike-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    margin-left: 18px;
+    padding: 4px 0;
+  }
+  .strike {
+    background: var(--chip);
+    border-radius: 5px;
+    padding: 1px 7px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
   .sources { font-size: 12.5px; margin-top: 14px; }
 </style>

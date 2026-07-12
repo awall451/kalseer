@@ -6,6 +6,9 @@ export default defineConfig({
   base: './',
   build: {
     outDir: '../site',
-    emptyOutDir: true, // site/ is pure build output; runtime data/ is volume-mounted
+    // NEVER wipe site/ on rebuild: site/data is a live docker bind-mountpoint
+    // (data repo's public/) — deleting it orphans the mount and /data/* 404s
+    // until the container restarts. Stale hashed assets are the lesser evil.
+    emptyOutDir: false,
   },
 })

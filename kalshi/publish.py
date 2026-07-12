@@ -106,10 +106,64 @@ def stats(closed, portfolio):
     return s
 
 
+MARKS = paper.DATA / "marks.jsonl"
+
+
+def record_marks(portfolio):
+    """Snapshot the current market mark for each open position.
+
+    Appends to marks.jsonl (one line per open position per publish run);
+    the dashboard's position tiles read the per-day history from
+    aggregates. `mark` is the mid quote converted to OUR side, so
+    mark > entry_price always means the position is winning at market.
+    """
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    rows = []
+    for x in portfolio["positions"]:
+        row = {"t": now, "date": now[:10], "ticker": x["ticker"], "side": x["side"],
+               "entry_price": x["entry_price"], "fair_value": x["fair_value"]}
+        try:
+            m = kalshi.get_market(x["ticker"])
+            yb = float(m.get("yes_bid_dollars") or 0)
+            ya = float(m.get("yes_ask_dollars") or 0)
+            if 0 < ya < 1:
+                mid = (yb + ya) / 2
+                row["mark"] = round(mid if x["side"] == "yes" else 1 - mid, 3)
+            row["title"] = (m.get("title") or "").replace("*", "")
+        except Exception as e:
+            print(f"! mark {x['ticker']}: {e}")
+        rows.append(row)
+    if rows:
+        with MARKS.open("a") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+    return rows
+
+
+def mark_history():
+    """ticker -> [{date, mark, title}] — last mark per day, in date order."""
+    if not MARKS.exists():
+        return {}
+    per_day = {}  # (ticker, date) -> row, last write wins
+    for line in MARKS.read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        if r.get("mark") is not None:
+            per_day[(r["ticker"], r["date"])] = r
+    hist = {}
+    for (ticker, date), r in sorted(per_day.items(), key=lambda kv: kv[0]):
+        hist.setdefault(ticker, []).append(
+            {"date": date, "mark": r["mark"], "title": r.get("title", "")})
+    return hist
+
+
 def main():
     PUBLIC.mkdir(parents=True, exist_ok=True)
     portfolio = paper.load()
     closed = load_closed()
+    record_marks(portfolio)
+    hist = mark_history()
 
     briefs = sorted(paper.DATA.glob("brief-*.json"))
     for b in briefs:
@@ -126,11 +180,18 @@ def main():
             tickers.update(t.get("ticker", "") for t in d.get(sec, []))
     (PUBLIC / "series.json").write_text(json.dumps(series_slugs(tickers)))
 
-    open_positions = [{
-        "ticker": x["ticker"], "side": x["side"], "entry_price": x["entry_price"],
-        "contracts": x["contracts"], "fair_value": x["fair_value"],
-        "edge": x["edge_at_entry"], "reasoning": x["reasoning"], "opened": x["opened"],
-    } for x in portfolio["positions"]]
+    open_positions = []
+    for x in portfolio["positions"]:
+        h = hist.get(x["ticker"], [])
+        open_positions.append({
+            "ticker": x["ticker"], "side": x["side"], "entry_price": x["entry_price"],
+            "contracts": x["contracts"], "fair_value": x["fair_value"],
+            "edge": x["edge_at_entry"], "reasoning": x["reasoning"], "opened": x["opened"],
+            "title": h[-1]["title"] if h else "",
+            "mark": h[-1]["mark"] if h else None,
+            "mark_prev": h[-2]["mark"] if len(h) > 1 else None,
+            "marks": [{"date": m["date"], "mark": m["mark"]} for m in h],
+        })
 
     agg = {
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
