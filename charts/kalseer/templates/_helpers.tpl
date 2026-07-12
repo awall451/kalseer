@@ -55,3 +55,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 true
 {{- end -}}
 {{- end }}
+
+{{/*
+  Resolve the name of the Secret holding the git-sync SSH deploy key
+  (key: `ssh`). Falls back to "<fullname>-gitsync-ssh".
+*/}}
+{{- define "kalseer.gitsyncSshSecretName" -}}
+{{- if .Values.dataSync.ssh.existingSecret -}}
+{{- .Values.dataSync.ssh.existingSecret -}}
+{{- else -}}
+{{- printf "%s-gitsync-ssh" (include "kalseer.fullname" .) -}}
+{{- end -}}
+{{- end }}

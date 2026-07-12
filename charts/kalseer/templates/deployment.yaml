@@ -69,7 +69,11 @@ spec:
             - --depth=1
             - --root=/gitsync
             - --link=repo
-          {{- if include "kalseer.gitsyncHasCreds" . }}
+            {{- if .Values.dataSync.ssh.enabled }}
+            - --ssh-key-file=/etc/git-secret/ssh
+            - --ssh-known-hosts-file=/etc/git-known-hosts/known_hosts
+            {{- end }}
+          {{- if and (not .Values.dataSync.ssh.enabled) (include "kalseer.gitsyncHasCreds" .) }}
           env:
             - name: GITSYNC_USERNAME
               valueFrom:
@@ -85,6 +89,14 @@ spec:
           volumeMounts:
             - name: gitsync
               mountPath: /gitsync
+            {{- if .Values.dataSync.ssh.enabled }}
+            - name: git-secret
+              mountPath: /etc/git-secret
+              readOnly: true
+            - name: git-known-hosts
+              mountPath: /etc/git-known-hosts
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.dataSync.resources | nindent 12 }}
         {{- end }}
@@ -95,6 +107,15 @@ spec:
         - name: nginx-conf
           configMap:
             name: {{ include "kalseer.fullname" . }}-nginx
+        {{- if .Values.dataSync.ssh.enabled }}
+        - name: git-secret
+          secret:
+            secretName: {{ include "kalseer.gitsyncSshSecretName" . }}
+            defaultMode: 0400
+        - name: git-known-hosts
+          configMap:
+            name: {{ include "kalseer.fullname" . }}-known-hosts
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
