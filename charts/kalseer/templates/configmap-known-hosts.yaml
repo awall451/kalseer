@@ -1,0 +1,11 @@
+{{- if and .Values.dataSync.enabled .Values.dataSync.ssh.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kalseer.fullname" . }}-known-hosts
+  labels:
+    {{- include "kalseer.labels" . | nindent 4 }}
+data:
+  known_hosts: |
+    {{- .Values.dataSync.ssh.knownHosts | nindent 4 }}
+{{- end }}

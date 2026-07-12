@@ -67,6 +67,20 @@ dataSync:
   sealed:
     username: ""
     password: ""
+  # OR clone over SSH with a read-only deploy key: set `repo` to
+  # git@github.com:<you>/kalseer-data and provide the private key via ONE
+  # of the same three paths (existingSecret needs key `ssh`). SSH takes
+  # precedence over username/password when enabled.
+  # NOTE: the key is mounted 0400; set podSecurityContext.fsGroup: 65533
+  # (git-sync's uid) so the sidecar can read it.
+  ssh:
+    enabled: false
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+    existingSecret: ""
+    key: ""
+    sealed:
+      key: ""
   resources:
     requests:
       cpu: 10m
