@@ -50,6 +50,7 @@ prompt (referred to below as `$DATA`).
 {
   "date": "YYYY-MM-DD",
   "narrative": "markdown prose: what you saw, what you did, why — written for the operator over coffee",
+  "narrative_spoken": "the same story retold for text-to-speech: NO tickers or symbols (say 'the gas price market, betting it stays above three dollars eighty-eight'), numbers read naturally ('33 cents', not '33¢'), no markdown, shortish sentences that sound right aloud",
   "trades_opened": [{"ticker","side","price","qty","fair","edge","title","reasoning"}],
   "trades_settled": [{"ticker","side","result","won","pnl","title","reasoning"}],
   "considered_but_passed": [{"ticker","why"}],

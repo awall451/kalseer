@@ -60,6 +60,12 @@ if [ ! -f "$BRIEF" ] && [ -z "$FAILED_STEP" ]; then
 fi
 
 run_step publish python3 kalshi/publish.py
+
+# Spoken brief (optional; speak.py no-ops without edge-tts installed).
+# Prefer the repo venv when present — edge-tts is the one non-stdlib dep.
+SPEAK_PY="python3"
+[ -x .venv/bin/python ] && SPEAK_PY=".venv/bin/python"
+run_step speak "$SPEAK_PY" kalshi/speak.py
 if [ "$DEPLOY" = "compose" ]; then
   run_step deploy docker compose up -d
 fi
