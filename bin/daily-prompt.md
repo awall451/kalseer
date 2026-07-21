@@ -44,6 +44,14 @@ prompt (referred to below as `$DATA`).
    `python3 kalshi/paper.py open TICKER yes|no PRICE CONTRACTS FAIR "reasoning"`
 6. Write the brief to `$DATA/brief-<today>.json`. This file MUST exist
    when you finish, even on a no-trade day (narrative explains why no trade).
+
+   **Write a stub of it early — right after step 1 — and update it as you go,**
+   rather than composing it at the end. You are on a wall-clock budget and can
+   be killed mid-run; a brief that exists and is thin beats a complete one that
+   was never written. The stub only needs `date`, the settled trades you can
+   already see, and a one-line narrative saying research is in progress.
+   Overwrite it with the real narrative once the board is done.
+
    Schema (match the newest existing `brief-*.json`):
 
 ```json
@@ -61,6 +69,31 @@ prompt (referred to below as `$DATA`).
 
    For `trades_settled`, read what `paper.py settle` moved into
    `$DATA/closed.jsonl` today (check the `settled` timestamps).
+
+## You are headless — read this before waiting on anything
+
+You run as a one-shot `claude -p` under a wall-clock timeout, unattended, with
+nobody watching. That changes what waiting means:
+
+- **Nothing will ever re-invoke you.** There are no background-task completion
+  notifications, no wake-ups, no next turn after you yield. If you stop and
+  wait to be resumed, the run simply dies at the timeout with no brief written.
+  Never end a turn intending to be woken up.
+- **Do not sleep to pass time.** Background `sleep` timers plus polling burn
+  the same budget you need for research. On 2026-07-21 an upstream web-tool
+  outage triggered exactly this: ~10 minutes went to waiting and retry loops,
+  and the run was killed one tool call before writing the brief. The whole
+  day's research was lost.
+- **When a tool is failing (529, timeouts, rate limits), cap total waiting at
+  ~5 minutes.** Retry a couple of times with short gaps, then move on. Research
+  whatever other markets are still reachable.
+- **If you can't verify primary sources, that is a finished result, not a
+  blocked one.** Write an honest no-trade brief saying which sources were
+  unreachable and that no trade could be responsibly priced. Not trading on
+  unverified data is correct — but record it and exit rather than waiting for
+  conditions to improve.
+- Prefer finishing early with a complete brief over finishing late with a
+  better one.
 
 ## Rules
 
