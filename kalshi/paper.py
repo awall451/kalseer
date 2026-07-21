@@ -118,7 +118,8 @@ def cmd_settle():
             still_open.append(pos)
             continue
         result = m.get("result") or ""
-        if m.get("status") != "settled" or result not in ("yes", "no"):
+        # Kalshi reports resolved markets as "finalized" (also seen: "settled")
+        if m.get("status") not in ("settled", "finalized") or result not in ("yes", "no"):
             still_open.append(pos)
             continue
         won = result == pos["side"]

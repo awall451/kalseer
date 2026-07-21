@@ -100,6 +100,18 @@ def test_settle_win_and_loss(ledger, monkeypatch):
     assert p["bankroll"] == pytest.approx(bankroll_before + 50.0)
 
 
+@pytest.mark.parametrize("status", ["settled", "finalized"])
+def test_settle_accepts_both_resolved_statuses(ledger, monkeypatch, status):
+    """Live Kalshi reports resolved markets as "finalized"; "settled" is also
+    seen. Treating only "settled" as resolved silently strands every position
+    in the ledger forever, so both must settle."""
+    paper.cmd_open("DONE", "yes", 0.40, 10, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market",
+                        lambda t: {"status": status, "result": "yes"})
+    paper.cmd_settle()
+    assert paper.load()["positions"] == []
+
+
 def test_settle_leaves_unresolved_open(ledger, monkeypatch):
     paper.cmd_open("PENDING", "yes", 0.40, 10, 0.6, "test")
     monkeypatch.setattr(paper.kalshi, "get_market",
