@@ -42,8 +42,11 @@ run_step() { # run_step <name> <cmd...>
 }
 
 claude_step() {
-  # 25-minute cap so a hung research session can't stall the pipeline
-  timeout 1500 claude -p "Data directory: $DATA_DIR
+  # Wall-clock cap so a hung research session can't stall the pipeline. A
+  # normal run finishes in ~8 min; the headroom absorbs upstream web-tool
+  # outages, which have cost 10+ min in a single run. Keep this below the
+  # unit's TimeoutStartSec.
+  timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "Data directory: $DATA_DIR
 $(cat bin/daily-prompt.md)" \
     --permission-mode default
 }
