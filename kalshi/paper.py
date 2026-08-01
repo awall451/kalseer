@@ -107,6 +107,25 @@ def cmd_open(ticker, side, price, contracts, fair_value, reasoning):
           f"bankroll ${p['bankroll']:.2f}")
 
 
+def market_close_time(m) -> str | None:
+    """When the market actually resolved, normalised to a UTC isoformat string.
+
+    The poller runs once a day and can be behind (or, after an outage, days
+    behind), so its wall clock is a bad x-coordinate for the equity curve.
+    Kalshi's close_time is the real settlement moment.
+    """
+    for field in ("close_time", "expected_expiration_time", "expiration_time"):
+        raw = m.get(field)
+        if not raw:
+            continue
+        try:
+            return (dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    .astimezone(dt.timezone.utc).isoformat(timespec="seconds"))
+        except ValueError:
+            continue
+    return None
+
+
 def cmd_settle():
     p = load()
     still_open, n = [], 0
@@ -125,12 +144,17 @@ def cmd_settle():
         won = result == pos["side"]
         payout = pos["contracts"] * (1.0 if won else 0.0)
         p["bankroll"] = round(p["bankroll"] + payout, 2)
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         pos.update({
             "result": result,
             "won": won,
             "payout": payout,
             "pnl": round(payout - pos["entry_price"] * pos["contracts"] - pos["fee_paid"], 2),
-            "settled": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            # when the market resolved (drives the equity curve) ...
+            "settled": market_close_time(m) or now,
+            # ... vs when this poller noticed (audit trail; a gap here means
+            # the settle step was down, as it was 2026-07-13..20)
+            "recorded": now,
         })
         with CLOSED.open("a") as f:
             f.write(json.dumps(pos) + "\n")

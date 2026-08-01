@@ -34,7 +34,11 @@ Quick definitions, alphabetical-ish, grouped by theme.
 
 - **Calibration** — whether your stated probabilities match reality: of all your "70%" calls, ~70% should happen. The dashboard's calibration chart plots exactly this.
 - **Brier score** — mean squared error of probability estimates. 0 = oracle, 0.25 = coin-flip guessing. Lower is better.
-- **ROI (return on investment)** — net profit ÷ total staked, after fees.
+- **ROI (return on investment)** — net profit ÷ total staked, after fees. The dashboard splits this into *return on capital staked* (settled trades only, the trading-skill number) and *return on fund* (realized + unrealized against the starting bankroll, the "what happened to the money" number).
+
+- **Mark to market** — valuing an open position at what the market would pay for it right now rather than at what it cost. A book held at cost looks flat no matter how far the odds have moved.
+
+- **Wilson interval** — an error bar for a win rate built from a small number of trials. It stays inside 0–100% and stays wide when the sample is tiny, so a 1-for-1 bucket reads as "unknown" instead of "100%".
 - **Paper trading** — trading with pretend money to measure skill before risking real money. Phase 1 of this whole project.
 - **Mark to market** — valuing open positions at current prices instead of entry price.
 - **Slippage** — the gap between the price you expected and the price you actually got.
