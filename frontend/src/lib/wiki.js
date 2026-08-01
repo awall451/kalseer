@@ -178,7 +178,10 @@ export function statsTokens(stats) {
     total_pnl: $(stats.total_pnl),
     fees_paid: $(stats.fees_paid),
     win_rate: pct(stats.win_rate),
-    roi: pct(stats.roi),
+    unrealized_pnl: $(stats.unrealized_pnl),
+    roi: pct(stats.roi_staked),
+    roi_staked: pct(stats.roi_staked),
+    return_total: pct(stats.return_total),
     settled: String(stats.settled ?? 0),
     open_positions: String(stats.open_positions ?? 0),
   }

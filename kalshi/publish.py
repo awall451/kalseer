@@ -53,20 +53,94 @@ def load_closed():
     return rows
 
 
-def equity_curve(closed, portfolio):
-    points = [{"t": None, "equity": paper.STARTING_BANKROLL, "label": "start"}]
-    equity = paper.STARTING_BANKROLL
-    for r in closed:
-        equity += r["pnl"]
-        points.append({"t": r.get("settled"), "equity": round(equity, 2),
-                       "label": r["ticker"], "pnl": r["pnl"]})
-    exposure = sum(paper.position_cost(x) for x in portfolio["positions"])
-    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    points.append({"t": now, "equity": round(portfolio["bankroll"] + exposure, 2),
-                   "label": "now (open positions at cost)"})
-    if points[0]["t"] is None:
-        points[0]["t"] = points[1]["t"] if len(points) > 1 else now
+def _days(start: str, end: str):
+    d = dt.date.fromisoformat(start)
+    last = dt.date.fromisoformat(end)
+    while d <= last:
+        yield d.isoformat()
+        d += dt.timedelta(days=1)
+
+
+def equity_curve(closed, portfolio, hist, today=None):
+    """One point per calendar day: cash + open positions marked to market.
+
+    The old version plotted one point per settlement and valued open
+    positions at cost. Both were wrong in the same direction — a settle
+    backlog collapsed weeks of history into a single vertical cliff, and a
+    book that had moved hundreds of dollars showed as a flat line. Here the
+    x-axis is real time and open positions are worth what the market says.
+    """
+    opens = [dict(x, _open=True) for x in portfolio["positions"]]
+    everything = opens + [dict(r, _open=False) for r in closed]
+    if not everything:
+        return []
+
+    now = dt.datetime.now(dt.timezone.utc)
+    today = today or now.date().isoformat()
+    # the trailing point is "as of now" only when the curve really ends today
+    last_t = (now.isoformat(timespec="seconds")
+              if today == now.date().isoformat() else f"{today}T23:59:59+00:00")
+    first = min(r["opened"][:10] for r in everything)
+    marks = {t: {m["date"]: m["mark"] for m in ms} for t, ms in hist.items()}
+
+    def value_on(pos, day):
+        """Last mark at or before `day`, falling back to entry price."""
+        seen = [d for d in marks.get(pos["ticker"], {}) if d <= day]
+        px = marks[pos["ticker"]][max(seen)] if seen else pos["entry_price"]
+        return px * pos["contracts"]
+
+    points = [{"t": f"{first}T00:00:00+00:00", "equity": paper.STARTING_BANKROLL,
+               "cash": paper.STARTING_BANKROLL, "unrealized": 0.0,
+               "realized": 0.0, "open_n": 0, "events": []}]
+    for day in _days(first, max(first, today)):
+        cash = paper.STARTING_BANKROLL
+        realized, held, events = 0.0, [], []
+        for r in everything:
+            if r["opened"][:10] > day:
+                continue
+            cash -= paper.position_cost(r)
+            settled = None if r["_open"] else r.get("settled", "")[:10]
+            if settled and settled <= day:
+                cash += r["payout"]
+                realized += r["pnl"]
+                if settled == day:
+                    events.append({"ticker": r["ticker"], "pnl": r["pnl"],
+                                   "won": r["won"]})
+            else:
+                held.append(r)
+        unrealized = sum(value_on(r, day) for r in held) - sum(
+            paper.position_cost(r) for r in held)
+        points.append({
+            "t": last_t if day == today else f"{day}T23:59:59+00:00",
+            "equity": round(cash + sum(value_on(r, day) for r in held), 2),
+            "cash": round(cash, 2),
+            "unrealized": round(unrealized, 2),
+            "realized": round(realized, 2),
+            "open_n": len(held),
+            "events": events,
+        })
+
+    drift = points[-1]["cash"] - portfolio["bankroll"]
+    if abs(drift) > 0.02:
+        print(f"! equity curve cash drift ${drift:+.2f} vs portfolio bankroll "
+              f"${portfolio['bankroll']:.2f} — ledger and curve disagree")
     return points
+
+
+def wilson(wins: int, n: int, z: float = 1.96):
+    """Wilson score interval — honest error bars at tiny n.
+
+    A bucket with one settled trade reads 0% or 100%; without an interval
+    the calibration chart looks like a catastrophe or a triumph when it is
+    neither. At n=1 this spans roughly the whole axis, which is the point.
+    """
+    if not n:
+        return 0.0, 1.0
+    p = wins / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return round(max(0.0, centre - half), 3), round(min(1.0, centre + half), 3)
 
 
 def calibration(closed):
@@ -77,36 +151,78 @@ def calibration(closed):
     out = []
     for b in sorted(buckets):
         rows = buckets[b]
+        wins = sum(1 for r in rows if r["won"])
+        lo95, hi95 = wilson(wins, len(rows))
         out.append({
-            "lo": b / 10, "hi": b / 10 + 0.1, "n": len(rows),
+            "lo": round(b / 10, 1), "hi": round(b / 10 + 0.1, 1), "n": len(rows),
             "predicted": round(sum(r["fair_value"] for r in rows) / len(rows), 3),
-            "actual": round(sum(1 for r in rows if r["won"]) / len(rows), 3),
+            "actual": round(wins / len(rows), 3),
+            "lo95": lo95, "hi95": hi95,
         })
     return out
 
 
-def stats(closed, portfolio):
-    exposure = sum(paper.position_cost(x) for x in portfolio["positions"])
+def stats(closed, portfolio, hist):
+    positions = portfolio["positions"]
+    exposure = sum(paper.position_cost(x) for x in positions)
+    marked = 0.0
+    for x in positions:
+        h = hist.get(x["ticker"], [])
+        marked += (h[-1]["mark"] if h else x["entry_price"]) * x["contracts"]
+    realized = sum(r["pnl"] for r in closed)
+    unrealized = marked - exposure
     s = {
         "bankroll": portfolio["bankroll"],
-        "equity": round(portfolio["bankroll"] + exposure, 2),
+        # marked to market, not held at cost — the headline number should move
+        # when the book moves, not only when something settles
+        "equity": round(portfolio["bankroll"] + marked, 2),
         "exposure": round(exposure, 2),
-        "open_positions": len(portfolio["positions"]),
+        "open_positions": len(positions),
         "settled": len(closed),
         "wins": sum(1 for r in closed if r["won"]),
-        "total_pnl": round(sum(r["pnl"] for r in closed), 2),
+        "total_pnl": round(realized, 2),
+        "unrealized_pnl": round(unrealized, 2),
         "fees_paid": round(sum(r["fee_paid"] for r in closed), 2),
         "starting_bankroll": paper.STARTING_BANKROLL,
     }
     staked = sum(paper.position_cost(r) for r in closed)
+    s["staked"] = round(staked, 2)
     s["win_rate"] = round(s["wins"] / len(closed), 3) if closed else None
-    s["roi"] = round(s["total_pnl"] / staked, 4) if staked else None
+    # Two different denominators, both wanted, previously conflated under one
+    # ambiguous "ROI" tile: return on the capital actually put at risk ...
+    s["roi_staked"] = round(realized / staked, 4) if staked else None
+    # ... and the fund-level number the hero equity implies.
+    s["return_total"] = round((realized + unrealized) / paper.STARTING_BANKROLL, 4)
     s["brier"] = (round(sum((r["fair_value"] - (1.0 if r["won"] else 0.0)) ** 2
                             for r in closed) / len(closed), 4) if closed else None)
+    # What a no-skill forecaster scores on the same trades: always predicting
+    # the observed base rate. Brier alone reads as a number with no yardstick.
+    if closed:
+        base = s["wins"] / len(closed)
+        s["brier_baseline"] = round(sum((base - (1.0 if r["won"] else 0.0)) ** 2
+                                        for r in closed) / len(closed), 4)
+    else:
+        s["brier_baseline"] = None
     return s
 
 
 MARKS = paper.DATA / "marks.jsonl"
+
+
+def yes_price(m) -> float | None:
+    """Current P(yes) from the book, or None if the market has no price.
+
+    A market that is about to resolve empties its book and quotes 0.0000 /
+    1.0000 — a degenerate spread, not a real mid. Falling back to last_price
+    there keeps the mark alive through settlement week instead of freezing
+    the sparkline days before the outcome (the interesting part).
+    """
+    yb = float(m.get("yes_bid_dollars") or 0)
+    ya = float(m.get("yes_ask_dollars") or 0)
+    if 0 < yb <= ya < 1:
+        return (yb + ya) / 2
+    last = float(m.get("last_price_dollars") or 0)
+    return last if 0 < last < 1 else None
 
 
 def record_marks(portfolio):
@@ -124,11 +240,9 @@ def record_marks(portfolio):
                "entry_price": x["entry_price"], "fair_value": x["fair_value"]}
         try:
             m = kalshi.get_market(x["ticker"])
-            yb = float(m.get("yes_bid_dollars") or 0)
-            ya = float(m.get("yes_ask_dollars") or 0)
-            if 0 < ya < 1:
-                mid = (yb + ya) / 2
-                row["mark"] = round(mid if x["side"] == "yes" else 1 - mid, 3)
+            yes = yes_price(m)
+            if yes is not None:
+                row["mark"] = round(yes if x["side"] == "yes" else 1 - yes, 3)
             row["title"] = (m.get("title") or "").replace("*", "")
         except Exception as e:
             print(f"! mark {x['ticker']}: {e}")
@@ -195,8 +309,8 @@ def main():
 
     agg = {
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "stats": stats(closed, portfolio),
-        "equity_curve": equity_curve(closed, portfolio),
+        "stats": stats(closed, portfolio, hist),
+        "equity_curve": equity_curve(closed, portfolio, hist),
         "calibration": calibration(closed),
         "open_positions": open_positions,
         "recent_settled": closed[-20:][::-1],

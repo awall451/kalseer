@@ -138,3 +138,38 @@ def test_calibration_buckets(ledger, capsys):
     out = capsys.readouterr().out
     assert "said 90%-100%: happened 50% (n=2)" in out
     assert "said 0%-10%: happened 0% (n=1)" in out
+
+
+# --- settlement timestamps ---
+
+def test_settle_stamps_market_close_not_poller_clock(ledger, monkeypatch):
+    """A settle poller that is days behind must not backdate the equity curve
+    to its own catch-up run — that stacks weeks of trades on one instant."""
+    paper.cmd_open("LATE", "yes", 0.40, 10, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market",
+                        lambda t: {"status": "finalized", "result": "yes",
+                                   "close_time": "2026-07-13T14:00:00Z"})
+    paper.cmd_settle()
+    row = json.loads(paper.CLOSED.read_text().splitlines()[0])
+    assert row["settled"] == "2026-07-13T14:00:00+00:00"
+    assert row["recorded"] > row["settled"]  # poller noticed later
+
+
+def test_settle_falls_back_to_now_without_close_time(ledger, monkeypatch):
+    paper.cmd_open("NOTIME", "yes", 0.40, 10, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market",
+                        lambda t: {"status": "finalized", "result": "yes"})
+    paper.cmd_settle()
+    row = json.loads(paper.CLOSED.read_text().splitlines()[0])
+    assert row["settled"] == row["recorded"]
+
+
+@pytest.mark.parametrize("field", ["close_time", "expected_expiration_time",
+                                   "expiration_time"])
+def test_market_close_time_field_order(field):
+    assert paper.market_close_time({field: "2026-07-20T14:00:00Z"}) == \
+        "2026-07-20T14:00:00+00:00"
+
+
+def test_market_close_time_ignores_unparseable():
+    assert paper.market_close_time({"close_time": "not a date"}) is None

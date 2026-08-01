@@ -35,9 +35,10 @@ A rejected trade prints `REJECTED` with the reason and the pipeline moves on. Re
 
 ## What the charts mean
 
-- **Equity over time** — bankroll plus open positions at cost. The "is this working" line.
-- **Calibration (said vs happened)** — every settled trade recorded a fair-value estimate at entry. Buckets compare *stated* probability to *actual* win rate. Honest system: this chart is allowed to look bad; it's not allowed to lie.
-- **Brier score** (stat tile) — one-number calibration: 0 is an oracle, 0.25 is coin-flip guessing.
+- **Equity over time** — cash plus open positions **marked to market** (last quote, not cost), one point per day. Settlements are plotted on the day the market resolved, not the day the poller noticed, so a settle backlog can't fake a cliff. The dashed line is cash alone; pins mark days something settled.
+- **Calibration (said vs happened)** — every settled trade recorded a fair-value estimate at entry. Buckets compare *stated* probability to *actual* win rate. Whiskers are 95% Wilson intervals: at n=1 a bucket spans almost the whole axis, which is the honest reading. Honest system: this chart is allowed to look bad; it's not allowed to lie.
+- **Brier score** (stat tile) — one-number calibration: 0 is an oracle, 0.25 is coin-flip guessing. The tile also shows what always predicting the observed base rate would have scored — beat that number or the forecasts add nothing.
+- **Two return tiles, deliberately** — *return on capital staked* is P&L ÷ dollars actually risked on settled trades; *return on fund* is realized + unrealized against the starting $500. They differ a lot and neither alone is the whole picture.
 
 ## Paper vs real
 

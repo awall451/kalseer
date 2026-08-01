@@ -151,10 +151,11 @@
     </div>
     {#if agg}
       <div class="hero">
-        <div class="hero-label ink2">Equity</div>
+        <div class="hero-label ink2">Equity · marked to market</div>
         <div class="hero-value">{fmt$(agg.stats.equity)}</div>
         <div class="hero-sub muted">
-          {fmt$(agg.stats.bankroll)} cash · started {fmt$(agg.stats.starting_bankroll)}
+          {fmt$(agg.stats.bankroll)} cash · {fmt$(agg.stats.equity - agg.stats.bankroll)}
+          in open positions · started {fmt$(agg.stats.starting_bankroll)}
         </div>
       </div>
     {/if}
