@@ -26,6 +26,13 @@ prompt (referred to below as `$DATA`).
    its `check_from`..`expires` window, research it per its `thesis` even if the
    scanner didn't surface it. Remove items past `expires` (or acted on and no
    longer relevant) and mention the watchlist check in the brief narrative.
+
+   **The watchlist is your research journal, not a reminder list.** It is the
+   only memory you have — you start every run cold, and anything you learned
+   yesterday that isn't written there is gone. Keep a `thesis` long and
+   specific enough that tomorrow-you can act on it without redoing the work:
+   the verified data series so far, what you predicted, what actually
+   happened, and what you concluded. See "Measure yourself" below.
 2. Pick the 3–6 most promising candidates. Prioritize markets that settle on
    public primary data you can actually check:
    - AAA gas prices → gasprices.aaa.com (the literal settlement source)
@@ -70,6 +77,47 @@ prompt (referred to below as `$DATA`).
    For `trades_settled`, read what `paper.py settle` moved into
    `$DATA/closed.jsonl` today (check the `settled` timestamps).
 
+## Measure yourself, not just the markets
+
+Seven settled trades cannot tell anyone whether this system can forecast — the
+P&L is noise at that sample size and so is the Brier score. What *can* pay off
+inside a few weeks is scoring your own methods against cheap baselines, on
+markets you never traded. Free calibration data is the highest-value thing you
+produce on a no-trade day.
+
+Carry all of this in the relevant watchlist item:
+
+- **Pre-register before the outcome exists.** If you are tracking a station,
+  a score, or a series, write down today — in the watchlist, before the answer
+  is knowable — your own point estimate, the naive public baseline (the NWS
+  grid forecast, the consensus, the last print), and the market's implied
+  centre. A number recorded after the fact is worthless. If you failed to
+  record the inputs, say so plainly and treat the day as unscorable rather
+  than reconstructing a flattering version.
+- **Score all three the next day, in writing.** Keep a running error table
+  (yours / baseline / market) with the per-day errors and the mean absolute
+  error. Do this even where you had no position — especially there.
+- **Retire methods the table says are bad.** If your discretionary adjustment
+  has a worse mean absolute error than the unadjusted baseline over several
+  days, stop making it and say so in the thesis. "Right action, wrong
+  reasoning" is a real outcome worth logging. A retired method can stay on the
+  watchlist in log-only mode, and can be revived if later data earns it.
+  Retirements are per-market: a method that fails at one weather station may
+  be sound at another for mechanistic reasons — say which reason.
+- **Write falsification conditions in advance, then honour them.** Decide
+  today what tomorrow's data would have to look like for you to trade or stand
+  down, and follow it tomorrow even when the setup looks tempting. A pass that
+  fires a pre-written stand-down rule is a better outcome than a win.
+- **Don't trade a drift until the sample supports it.** Two moves in the same
+  direction are not a trend. For a noisy daily series, require roughly
+  `|mean daily change| > 2 × sd / sqrt(n)` before pricing the drift at all,
+  and say where you are against that bar. State the n you would need.
+- **Prefer thresholds you can read to the precision the contract needs.** If
+  settlement turns on a digit the source does not publish (an exact
+  fresh/rotten split, a rounding boundary you can only see to one significant
+  figure), that is a pass — and worth recording as a repeatable pattern to
+  look for a better source on.
+
 ## You are headless — read this before waiting on anything
 
 You run as a one-shot `claude -p` under a wall-clock timeout, unattended, with
@@ -103,3 +151,8 @@ nobody watching. That changes what waiting means:
   directory.
 - Reasoning in the brief must cite the actual numbers you found (prices,
   scores, temps), so the audit trail stays checkable.
+- If a source you need is blocked by the permission allowlist rather than by
+  the network, prove it: hit a known-good host in the same tool batch, and if
+  that one answers, name the blocked host explicitly in the brief as an
+  operator action item. Don't infer around missing settlement data — a market
+  whose settlement metric you cannot read is a pass, every time.
