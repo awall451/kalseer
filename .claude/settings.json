@@ -17,8 +17,12 @@
       "WebFetch(domain:www.clevelandfed.org)",
       "WebFetch(domain:portwatch.imf.org)",
       "WebFetch(domain:forecast.weather.gov)",
+      "WebFetch(domain:services9.arcgis.com)",
+      "WebFetch(domain:api.elections.kalshi.com)",
+      "WebFetch(domain:www.bls.gov)",
+      "WebFetch(domain:bls.gov)",
+      "WebFetch(domain:en.wikipedia.org)",
       "Read(./**)",
-      "Write(data/**)",
       "Edit(data/**)"
     ]
   }
