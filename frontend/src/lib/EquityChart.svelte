@@ -37,7 +37,7 @@
           const evts = (row.events ?? [])
             .map(
               (e) =>
-                `<br/><span style="opacity:.75">settled ${e.ticker}</span> ` +
+                `<br/><span style="opacity:.75">settled ${e.title || e.ticker}</span> ` +
                 `<b>${signed$(e.pnl)}</b>`,
             )
             .join('')

@@ -20,6 +20,7 @@ import paper
 
 PUBLIC = paper.DATA / "public"
 SERIES_CACHE = paper.DATA / "series-cache.json"
+TITLE_CACHE = paper.DATA / "title-cache.json"
 
 
 def slugify(title: str) -> str:
@@ -43,6 +44,44 @@ def series_slugs(tickers) -> dict:
                 cache[t] = ""
     SERIES_CACHE.write_text(json.dumps(cache, indent=1))
     return cache
+
+
+def title_map(tickers, hist) -> dict:
+    """ticker -> human-readable market title, e.g. KXRT-ICE-25 ->
+    "Ice Cream Man Rotten Tomatoes score?".
+
+    A raw ticker means nothing at a glance, so every ticker the dashboard
+    shows gets a title. Marks history already carries titles for anything
+    we ever held; everything else (e.g. considered-but-passed tickers) is
+    fetched once from the API — settled markets stay queryable — and
+    cached on disk.
+    """
+    cache = {}
+    if TITLE_CACHE.exists():
+        cache = json.loads(TITLE_CACHE.read_text())
+    titles = {}
+    for t, ms in hist.items():
+        for m in reversed(ms):
+            if m.get("title"):
+                titles[t] = m["title"]
+                break
+    # single attempt, no backoff: many considered-but-passed tickers are
+    # long delisted and 404 — retrying each would stall the daily run
+    for t in sorted({tk for tk in tickers if tk}):
+        if titles.get(t):
+            continue
+        if cache.get(t):
+            titles[t] = cache[t]
+            continue
+        if "*" in t or " " in t:  # research notes, not real tickers
+            continue
+        try:
+            titles[t] = (kalshi.get_market(t, tries=1).get("title") or "").replace("*", "")
+        except Exception as e:
+            print(f"! title {t}: {e}")
+    cache.update({t: v for t, v in titles.items() if v})
+    TITLE_CACHE.write_text(json.dumps(cache, indent=1))
+    return {t: v for t, v in titles.items() if v}
 
 
 def load_closed():
@@ -244,6 +283,7 @@ def record_marks(portfolio):
             if yes is not None:
                 row["mark"] = round(yes if x["side"] == "yes" else 1 - yes, 3)
             row["title"] = (m.get("title") or "").replace("*", "")
+            row["close_time"] = paper.market_close_time(m)
         except Exception as e:
             print(f"! mark {x['ticker']}: {e}")
         rows.append(row)
@@ -268,7 +308,8 @@ def mark_history():
     hist = {}
     for (ticker, date), r in sorted(per_day.items(), key=lambda kv: kv[0]):
         hist.setdefault(ticker, []).append(
-            {"date": date, "mark": r["mark"], "title": r.get("title", "")})
+            {"date": date, "mark": r["mark"], "title": r.get("title", ""),
+             "close_time": r.get("close_time")})
     return hist
 
 
@@ -294,6 +335,10 @@ def main():
             tickers.update(t.get("ticker", "") for t in d.get(sec, []))
     (PUBLIC / "series.json").write_text(json.dumps(series_slugs(tickers)))
 
+    # every ticker anywhere on the dashboard gets a human-readable title
+    titles = title_map(tickers, hist)
+    (PUBLIC / "titles.json").write_text(json.dumps(titles, indent=1))
+
     open_positions = []
     for x in portfolio["positions"]:
         h = hist.get(x["ticker"], [])
@@ -301,7 +346,9 @@ def main():
             "ticker": x["ticker"], "side": x["side"], "entry_price": x["entry_price"],
             "contracts": x["contracts"], "fair_value": x["fair_value"],
             "edge": x["edge_at_entry"], "reasoning": x["reasoning"], "opened": x["opened"],
-            "title": h[-1]["title"] if h else "",
+            "title": titles.get(x["ticker"], ""),
+            "closes": next((m["close_time"] for m in reversed(h)
+                            if m.get("close_time")), None),
             "mark": h[-1]["mark"] if h else None,
             "mark_prev": h[-2]["mark"] if len(h) > 1 else None,
             "marks": [{"date": m["date"], "mark": m["mark"]} for m in h],
@@ -313,8 +360,12 @@ def main():
         "equity_curve": equity_curve(closed, portfolio, hist),
         "calibration": calibration(closed),
         "open_positions": open_positions,
-        "recent_settled": closed[-20:][::-1],
+        "recent_settled": [dict(r, title=titles.get(r["ticker"], ""))
+                           for r in closed[-20:][::-1]],
     }
+    for pt in agg["equity_curve"]:
+        for e in pt["events"]:
+            e["title"] = titles.get(e["ticker"], "")
     (PUBLIC / "aggregates.json").write_text(json.dumps(agg, indent=1))
     print(f"published {len(dates)} briefs + aggregates to {PUBLIC}")
 

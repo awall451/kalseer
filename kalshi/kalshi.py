@@ -9,16 +9,16 @@ import urllib.request
 BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
 
-def _get(path: str, **params) -> dict:
+def _get(path: str, tries: int = 4, **params) -> dict:
     qs = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     url = f"{BASE}{path}" + (f"?{qs}" if qs else "")
     req = urllib.request.Request(url, headers={"User-Agent": "paper-research/0.1"})
-    for attempt in range(4):
+    for attempt in range(tries):
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.load(r)
         except Exception:
-            if attempt == 3:
+            if attempt == tries - 1:
                 raise
             time.sleep(2 ** attempt)
 
@@ -36,8 +36,8 @@ def iter_markets(status: str = "open", max_pages: int = 200,
             return
 
 
-def get_market(ticker: str) -> dict:
-    return _get(f"/markets/{ticker}")["market"]
+def get_market(ticker: str, tries: int = 4) -> dict:
+    return _get(f"/markets/{ticker}", tries=tries)["market"]
 
 
 def get_event(event_ticker: str) -> dict:
