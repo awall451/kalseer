@@ -1,14 +1,18 @@
 <script>
   import { marketUrl } from './kalshiUrl.js'
 
-  let { trade, slugs = {} } = $props()
+  let { trade, slugs = {}, titles = {} } = $props()
 
   const fmtc = (v) => Math.round(v * 100) + '¢'
+  let title = $derived(trade.title || titles[trade.ticker] || '')
 </script>
 
 <div class="card trade">
   <div class="head">
     <span class="side" class:no={trade.side === 'no'}>{trade.side.toUpperCase()}</span>
+    {#if title}
+      <span class="title">{title}</span>
+    {/if}
     <a class="mono ticker" href={marketUrl(trade.ticker, slugs)}
        target="_blank" rel="noopener">{trade.ticker} ↗</a>
     {#if trade.result}
@@ -20,7 +24,6 @@
       </span>
     {/if}
   </div>
-  {#if trade.title}<div class="title">{trade.title}</div>{/if}
   <div class="chips">
     <span class="chip">{trade.qty ?? trade.contracts}x @ {fmtc(trade.price ?? trade.entry_price)}</span>
     <span class="chip">fair {fmtc(trade.fair ?? trade.fair_value)}</span>
@@ -38,9 +41,9 @@
     background: var(--series-1-soft); color: var(--series-1);
   }
   .side.no { background: var(--chip); color: var(--ink-2); }
-  .ticker { color: var(--ink-2); text-decoration: none; }
+  .ticker { color: var(--ink-2); text-decoration: none; font-size: 12.5px; }
   .ticker:hover { color: var(--series-1); text-decoration: underline; }
-  .title { font-weight: 600; margin-top: 6px; }
+  .title { font-weight: 600; }
   .result { font-size: 12.5px; font-weight: 700; margin-left: auto; }
   .result.won { color: var(--good-text); }
   .result.lost { color: var(--critical); }

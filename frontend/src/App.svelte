@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import StatTiles from './lib/StatTiles.svelte'
+  import PositionsBoard from './lib/PositionsBoard.svelte'
   import EquityChart from './lib/EquityChart.svelte'
   import CalibrationChart from './lib/CalibrationChart.svelte'
   import TradeCard from './lib/TradeCard.svelte'
@@ -10,6 +11,7 @@
 
   let dates = $state([])
   let slugs = $state({})
+  let titles = $state({})
   let agg = $state(null)
   let status = $state(null)
   let brief = $state(null)
@@ -33,10 +35,6 @@
 
   const fmt$ = (v) => '$' + Number(v).toFixed(2)
   const fmtSigned$ = (v) => (v < 0 ? '−$' : '+$') + Math.abs(Number(v)).toFixed(2)
-  const cents = (v) => Math.round(v * 100) + '¢'
-  // Tile tone: mark is quoted for OUR side, so mark above entry = winning.
-  const tone = (delta) =>
-    delta == null ? 'flat' : delta > 0.02 ? 'good' : delta < -0.02 ? 'bad' : 'flat'
 
   // Kalshi encodes one binary market per strike of a scalar event
   // (SERIES-EVENT-STRIKE). Group same-event entries so a researched
@@ -132,6 +130,11 @@
     } catch {
       slugs = {}
     }
+    try {
+      titles = await getJson('./data/titles.json')
+    } catch {
+      titles = {} // older publishes: components fall back to the raw ticker
+    }
     const fromHash = location.hash.replace(/^#\//, '')
     if (fromHash.startsWith('wiki')) {
       await loadBrief(dates[0])
@@ -184,6 +187,8 @@
   {:else if agg}
     <StatTiles stats={agg.stats} />
 
+    <PositionsBoard open={agg.open_positions ?? []} settled={agg.recent_settled ?? []} {slugs} />
+
     <div class="charts">
       <section class="card">
         <h3>Equity over time</h3>
@@ -220,13 +225,12 @@
     </section>
 
     {#if brief && !brief.missing}
-      {@const showLive = selected === dates[0] && agg?.open_positions?.length}
-      {#if showLive || brief.trades_settled?.length}
+      {#if brief.trades_settled?.length}
         <section class="pos-grid">
-          {#each brief.trades_settled ?? [] as t}
+          {#each brief.trades_settled as t}
             <a class="pos-tile {t.won ? 'good' : 'bad'}" href={marketUrl(t.ticker, slugs)}
                target="_blank" rel="noopener">
-              <div class="pos-title">{t.title || t.ticker}</div>
+              <div class="pos-title">{t.title || titles[t.ticker] || t.ticker}</div>
               <div class="pos-line">
                 <span class="mono side">{(t.side ?? '').toUpperCase()}</span>
                 <span class="chipw {t.won ? 'win' : 'loss'}">{t.won ? 'WIN' : 'LOSS'}</span>
@@ -235,31 +239,6 @@
               <div class="muted pos-sub">settled {selected}</div>
             </a>
           {/each}
-          {#if showLive}
-            {#each agg.open_positions as p}
-              {@const delta = p.mark != null ? p.mark - p.entry_price : null}
-              {@const day = p.mark != null && p.mark_prev != null ? p.mark - p.mark_prev : null}
-              <a class="pos-tile {tone(delta)}" href={marketUrl(p.ticker, slugs)}
-                 target="_blank" rel="noopener">
-                <div class="pos-title">{p.title || p.ticker}</div>
-                <div class="pos-line">
-                  <span class="mono side">{p.side.toUpperCase()}</span>
-                  <span class="mono">{cents(p.entry_price)} → {p.mark != null ? cents(p.mark) : '—'}</span>
-                  {#if day != null}
-                    <span class="pos-arrow">{day > 0.005 ? '↑' : day < -0.005 ? '↓' : '→'}</span>
-                  {/if}
-                </div>
-                <div class="muted pos-sub">
-                  {#if delta != null}
-                    {delta >= 0 ? '+' : '−'}{Math.abs(Math.round(delta * 100))}¢ vs entry ·
-                    {fmtSigned$(delta * p.contracts)} at market
-                  {:else}
-                    no market mark yet
-                  {/if}
-                </div>
-              </a>
-            {/each}
-          {/if}
         </section>
       {/if}
 
@@ -270,14 +249,14 @@
       {#if brief.trades_opened?.length}
         <h3 class="sect">Opened ({brief.trades_opened.length})</h3>
         {#each brief.trades_opened as t}
-          <TradeCard trade={t} {slugs} />
+          <TradeCard trade={t} {slugs} {titles} />
         {/each}
       {/if}
 
       {#if brief.trades_settled?.length}
         <h3 class="sect">Settled</h3>
         {#each brief.trades_settled as t}
-          <TradeCard trade={{ ...t, result: t.result ?? 'settled' }} {slugs} />
+          <TradeCard trade={{ ...t, result: t.result ?? 'settled' }} {slugs} {titles} />
         {/each}
       {/if}
 
@@ -288,11 +267,14 @@
             {#if g.items.length > 1}
               <div class="passed-group">
                 <div class="passed-head">
+                  {#if titles[g.items[0].ticker]}
+                    <span class="passed-title">{titles[g.items[0].ticker]}</span>
+                  {:else if seriesLabel(g.series)}
+                    <span class="passed-title">{seriesLabel(g.series)}</span>
+                  {/if}
                   <a class="mono" href={marketUrl(g.items[0].ticker, slugs)} target="_blank"
                      rel="noopener">{g.event} ↗</a>
-                  {#if seriesLabel(g.series)}
-                    <span class="muted">{seriesLabel(g.series)} — one market per strike</span>
-                  {/if}
+                  <span class="muted">one market per strike</span>
                 </div>
                 {#each g.items as c}
                   <div class="passed strike-row">
@@ -304,11 +286,13 @@
             {:else}
               <div class="passed">
                 <div class="passed-head">
+                  {#if titles[g.items[0].ticker]}
+                    <span class="passed-title">{titles[g.items[0].ticker]}</span>
+                  {:else if seriesLabel(g.series)}
+                    <span class="passed-title">{seriesLabel(g.series)}</span>
+                  {/if}
                   <a class="mono" href={marketUrl(g.items[0].ticker, slugs)} target="_blank"
                      rel="noopener">{g.items[0].ticker} ↗</a>
-                  {#if seriesLabel(g.series)}
-                    <span class="muted">{seriesLabel(g.series)}</span>
-                  {/if}
                 </div>
                 <div class="ink2 passed-why">{g.items[0].why}</div>
               </div>
@@ -327,7 +311,7 @@
     {#if agg.open_positions?.length}
       <h3 class="sect">All open positions</h3>
       {#each agg.open_positions as t}
-        <TradeCard trade={t} {slugs} />
+        <TradeCard trade={t} {slugs} {titles} />
       {/each}
     {/if}
   {:else}
@@ -432,6 +416,8 @@
   .passed { padding: 6px 0; }
   .passed-group { padding: 6px 0; }
   .passed-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .passed-title { font-weight: 600; }
+  .passed-head .mono { font-size: 12.5px; }
   .passed-why { margin-top: 2px; }
   /* chip column stays put; reasoning wraps within its own column */
   .strike-row {
