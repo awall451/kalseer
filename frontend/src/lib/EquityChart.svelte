@@ -26,6 +26,9 @@
       },
       tooltip: {
         trigger: 'axis',
+        // keep the tooltip inside the chart box — near the edges ECharts
+        // flips it to the other side of the cursor instead of clipping
+        confine: true,
         axisPointer: { type: 'line', lineStyle: { color: t.axis, width: 1 } },
         backgroundColor: t.surface,
         borderColor: t.grid,

@@ -102,8 +102,10 @@
     border-radius: 9px;
   }
   .rows { padding: 4px 12px; }
+  /* fixed column tracks so YES/NO, P&L and date line up down the list */
   .row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) 42px 76px 58px;
     gap: 12px;
     align-items: baseline;
     padding: 7px 0;
@@ -116,21 +118,21 @@
   .row:hover .row-title { color: var(--series-1); }
   .row-title {
     font-weight: 600;
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .row .side { text-align: right; }
+  .row .pnl { text-align: right; font-variant-numeric: tabular-nums; }
   .chipw {
     border-radius: 5px; padding: 1px 7px; font-size: 11.5px; font-weight: 650;
-    flex-shrink: 0; width: 40px; text-align: center;
+    text-align: center;
   }
   .chipw.win { background: var(--series-1-soft); color: var(--good-text); }
   .chipw.loss { background: var(--series-1-soft); color: var(--critical); }
-  .when { font-size: 12px; flex-shrink: 0; }
+  .when { font-size: 12px; text-align: right; white-space: nowrap; }
   @media (max-width: 560px) {
-    .row { flex-wrap: wrap; }
-    .row-title { flex-basis: 100%; white-space: normal; }
+    .row { grid-template-columns: 46px minmax(0, 1fr) 42px 76px; }
+    .row .when { display: none; }
   }
 </style>
