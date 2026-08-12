@@ -25,6 +25,7 @@
       },
       tooltip: {
         trigger: 'axis',
+        confine: true,
         backgroundColor: t.surface,
         borderColor: t.grid,
         textStyle: { color: t.ink, fontSize: 12 },
