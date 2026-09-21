@@ -11,6 +11,11 @@
 #                       "none" skips it (something else serves the dashboard)
 #   KALSEER_HEALTH_URL  URL to curl after deploy
 #                       (default: http://localhost:$KALSEER_PORT/data/aggregates.json)
+#   KALSEER_ALERT_URL   if set, POST a short plain-text alert here when a step
+#                       fails (ntfy-compatible: any URL that accepts a text
+#                       body works). Also pings once on recovery.
+#   KALSEER_ALERT_CMD   if set, run `$KALSEER_ALERT_CMD "<message>"` instead
+#                       of / in addition to the URL POST.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +33,16 @@ exec >>"$LOG" 2>&1
 
 echo "=== daily run $(date -Is) (data: $DATA_DIR) ==="
 FAILED_STEP=""
+AUTH_FAILED=""
+
+alert() { # alert <message> — best-effort push; never fails the pipeline
+  local msg="$1"
+  [ -n "${KALSEER_ALERT_CMD:-}" ] && $KALSEER_ALERT_CMD "$msg" || true
+  [ -n "${KALSEER_ALERT_URL:-}" ] && \
+    curl -sf --max-time 15 -H "Title: kalseer" -d "$msg" "$KALSEER_ALERT_URL" \
+      >/dev/null || true
+  return 0
+}
 
 run_step() { # run_step <name> <cmd...>
   local name="$1"; shift
@@ -46,9 +61,20 @@ claude_step() {
   # normal run finishes in ~8 min; the headroom absorbs upstream web-tool
   # outages, which have cost 10+ min in a single run. Keep this below the
   # unit's TimeoutStartSec.
+  local out rc
+  out="$(mktemp)"
   timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "Data directory: $DATA_DIR
 $(cat bin/daily-prompt.md)" \
-    --permission-mode default
+    --permission-mode default 2>&1 | tee "$out"
+  rc=${PIPESTATUS[0]}
+  # Expired CLI credentials fail every run until a human re-logs-in; name the
+  # condition so the alert says what to do (operator item #18 — a silent
+  # OAuth expiry cost 12 straight briefs in Sep 2026).
+  if grep -qiE "oauth.*(expired|could not be refreshed)|failed to authenticate" "$out"; then
+    AUTH_FAILED=1
+  fi
+  rm -f "$out"
+  return "$rc"
 }
 
 run_step settle  python3 kalshi/paper.py settle
@@ -72,6 +98,13 @@ run_step speak "$SPEAK_PY" kalshi/speak.py
 if [ "$DEPLOY" = "compose" ]; then
   run_step deploy docker compose up -d
 fi
+
+# Remember the previous run's outcome so a recovery gets one ping.
+PREV_OK="$(python3 -c "
+import json
+try: print(json.load(open('$STATUS_FILE')).get('ok'))
+except Exception: print('')
+")"
 
 # Write status.json (read by the dashboard banner) BEFORE the data-repo
 # commit+push, so the served status reflects this run.
@@ -118,6 +151,17 @@ fi
 
 # Health last: with a git-synced dashboard the data has to land upstream first.
 run_step health curl -sf -o /dev/null --retry 5 --retry-delay 5 "$HEALTH_URL"
+
+# Alert on any failure (operator item #18); one extra ping on recovery so a
+# fixed pipeline confirms itself. Best-effort — never changes the exit code.
+if [ -n "$FAILED_STEP" ]; then
+  MSG="$(date +%F): pipeline FAILED at step '$FAILED_STEP' (log: $LOG)"
+  [ -n "$AUTH_FAILED" ] && \
+    MSG="$(date +%F): claude CLI auth EXPIRED — ssh to the pipeline host and run 'claude' to /login, or every brief is lost until then"
+  alert "$MSG"
+elif [ "$PREV_OK" = "False" ]; then
+  alert "$(date +%F): pipeline recovered — all steps green"
+fi
 
 echo "=== done $(date -Is) failed_step='${FAILED_STEP}' ==="
 [ -z "$FAILED_STEP" ]
