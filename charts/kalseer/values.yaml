@@ -50,6 +50,10 @@ dataSync:
   ref: main
   # Seconds between polls of the data repo.
   period: 60s
+  # Keep retrying failed syncs forever instead of exiting the container
+  # (git-sync's default aborts on the first post-startup failure, so every
+  # overnight DNS blip used to show up as a sidecar restart).
+  maxFailures: -1
   # Directory inside the data repo that publish.py owns (served at /data/).
   subPath: public
   # Credentials for a private data repo, via ONE of:

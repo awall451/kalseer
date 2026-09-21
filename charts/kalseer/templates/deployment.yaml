@@ -66,6 +66,7 @@ spec:
             - --repo={{ required "dataSync.repo is required when dataSync.enabled" .Values.dataSync.repo }}
             - --ref={{ .Values.dataSync.ref }}
             - --period={{ .Values.dataSync.period }}
+            - --max-failures={{ .Values.dataSync.maxFailures }}
             - --depth=1
             - --root=/gitsync
             - --link=repo
