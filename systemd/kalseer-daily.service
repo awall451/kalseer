@@ -14,4 +14,8 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Example config:
 # Environment=KALSEER_DATA_DIR=%h/kalseer-data
 # Environment=KALSEER_PORT=8085
+# Push alert on pipeline failure (any URL that accepts a plain-text POST,
+# e.g. a private ntfy topic). Strongly recommended: a silent claude-auth
+# expiry once cost 12 straight briefs before anyone noticed.
+# Environment=KALSEER_ALERT_URL=https://ntfy.sh/your-secret-topic
 TimeoutStartSec=45min
