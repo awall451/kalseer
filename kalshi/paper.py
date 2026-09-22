@@ -6,6 +6,9 @@ calibration, not just P&L.
 
 Usage:
   python3 paper.py open TICKER yes|no PRICE CONTRACTS FAIR_VALUE "reasoning..."
+  python3 paper.py close TICKER PRICE "reasoning..."
+                                   # sell an open position before settlement;
+                                   # PRICE is what YOUR side fetches now (its bid)
   python3 paper.py settle          # poll API, settle finished markets
   python3 paper.py status          # open positions + bankroll
   python3 paper.py report          # P&L + calibration buckets
@@ -107,6 +110,42 @@ def cmd_open(ticker, side, price, contracts, fair_value, reasoning):
           f"bankroll ${p['bankroll']:.2f}")
 
 
+def cmd_close(ticker, price, reasoning):
+    """Exit before settlement at the current market price for the held side.
+
+    The row keeps result="closed" and NO "won" field: an exit is a cash
+    event, not a resolved forecast, and must never enter the calibration
+    data. Closing does not refund the daily open cap.
+    """
+    price = float(price)
+    assert 0 < price < 1
+    p = load()
+    matches = [x for x in p["positions"] if x["ticker"] == ticker]
+    if not matches:
+        sys.exit(f"no open position in {ticker}")
+    pos = matches[0]  # oldest first: positions append in open order
+    fee = kalshi.taker_fee(price, pos["contracts"])
+    proceeds = round(price * pos["contracts"] - fee, 2)
+    p["positions"].remove(pos)
+    p["bankroll"] = round(p["bankroll"] + proceeds, 2)
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    pos.update({
+        "result": "closed",
+        "exit_price": price,
+        "exit_fee": fee,
+        "exit_reasoning": reasoning,
+        "payout": proceeds,
+        "pnl": round(proceeds - pos["entry_price"] * pos["contracts"] - pos["fee_paid"], 2),
+        "settled": now,
+        "recorded": now,
+    })
+    with CLOSED.open("a") as f:
+        f.write(json.dumps(pos) + "\n")
+    save(p)
+    print(f"CLOSED {pos['side'].upper()} {pos['contracts']}x {ticker} @ {price:.2f} "
+          f"(exit fee ${fee:.2f}, pnl ${pos['pnl']:+.2f}) bankroll ${p['bankroll']:.2f}")
+
+
 def market_close_time(m) -> str | None:
     """When the market actually resolved, normalised to a UTC isoformat string.
 
@@ -183,14 +222,19 @@ def cmd_report():
     if not closed:
         print("no settled trades yet")
         return
+    # Money counts every row; skill (wins, calibration) counts only rows the
+    # market resolved — an early exit never learns its outcome.
+    resolved = [x for x in closed if x.get("result") != "closed"]
+    early = len(closed) - len(resolved)
     pnl = sum(x["pnl"] for x in closed)
-    wins = sum(1 for x in closed if x["won"])
+    wins = sum(1 for x in resolved if x["won"])
     staked = sum(x["entry_price"] * x["contracts"] + x["fee_paid"] for x in closed)
-    print(f"{len(closed)} settled | {wins} wins ({wins/len(closed):.0%}) | "
+    win_str = f"{wins} wins ({wins/len(resolved):.0%})" if resolved else "0 wins"
+    print(f"{len(resolved)} settled + {early} closed early | {win_str} | "
           f"pnl ${pnl:+.2f} | roi {pnl/staked:+.1%} on ${staked:.2f} staked\n")
     print("calibration (our fair value vs reality):")
     buckets = {}
-    for x in closed:
+    for x in resolved:
         b = min(int(x["fair_value"] * 10), 9)
         buckets.setdefault(b, []).append(1 if x["won"] else 0)
     for b in sorted(buckets):
@@ -200,7 +244,8 @@ def cmd_report():
               f"(n={len(outcomes)})")
 
 
-COMMANDS = {"open": cmd_open, "settle": cmd_settle, "status": cmd_status, "report": cmd_report}
+COMMANDS = {"open": cmd_open, "close": cmd_close, "settle": cmd_settle,
+            "status": cmd_status, "report": cmd_report}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:

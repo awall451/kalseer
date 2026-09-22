@@ -54,7 +54,8 @@
     <div class="rows card">
       {#each recent as t}
         <a class="row" href={marketUrl(t.ticker, slugs)} target="_blank" rel="noopener">
-          <span class="chipw {t.won ? 'win' : 'loss'}">{t.won ? 'WIN' : 'LOSS'}</span>
+          <span class="chipw {t.result === 'closed' ? 'exit' : t.won ? 'win' : 'loss'}"
+            >{t.result === 'closed' ? 'CLOSED' : t.won ? 'WIN' : 'LOSS'}</span>
           <span class="row-title">{t.title || t.ticker}</span>
           <span class="mono side">{(t.side ?? '').toUpperCase()}</span>
           <span class="mono pnl {t.pnl >= 0 ? 'up' : 'down'}">{fmtSigned$(t.pnl)}</span>
@@ -130,6 +131,7 @@
   }
   .chipw.win { background: var(--series-1-soft); color: var(--good-text); }
   .chipw.loss { background: var(--series-1-soft); color: var(--critical); }
+  .chipw.exit { background: var(--chip); color: var(--ink-2); }
   .when { font-size: 12px; text-align: right; white-space: nowrap; }
   @media (max-width: 560px) {
     .row { grid-template-columns: 46px minmax(0, 1fr) 42px 76px; }

@@ -15,7 +15,14 @@
     {/if}
     <a class="mono ticker" href={marketUrl(trade.ticker, slugs)}
        target="_blank" rel="noopener">{trade.ticker} ↗</a>
-    {#if trade.result}
+    {#if trade.result === 'closed'}
+      <span class="result closed">
+        ⤴ CLOSED
+        {#if trade.pnl != null}
+          <span class="pnl">{trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}</span>
+        {/if}
+      </span>
+    {:else if trade.result}
       <span class="result" class:won={trade.won} class:lost={!trade.won}>
         {trade.won ? '✓ WIN' : '✗ LOSS'}
         {#if trade.pnl != null}
@@ -47,6 +54,7 @@
   .result { font-size: 12.5px; font-weight: 700; margin-left: auto; }
   .result.won { color: var(--good-text); }
   .result.lost { color: var(--critical); }
+  .result.closed { color: var(--ink-2); }
   .pnl { margin-left: 6px; }
   .chips { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .chip {

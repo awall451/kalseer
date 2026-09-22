@@ -49,6 +49,15 @@ prompt (referred to below as `$DATA`).
    equity, capped by the guardrails anyway.
 5. Open trades:
    `python3 kalshi/paper.py open TICKER yes|no PRICE CONTRACTS FAIR "reasoning"`
+
+   You may also exit an open position before settlement when its thesis is
+   dead (new information, not price wobble):
+   `python3 kalshi/paper.py close TICKER PRICE "reasoning"`
+   where PRICE is what your side sells for right now (its bid; for a NO
+   position that is 1 − yes_ask). A close is a cash event, not a resolved
+   forecast — it never enters the calibration data, and it does not refund
+   the 3-opens/day cap. Record the honest exit reasoning; "freeing capital"
+   is a valid reason, "the price moved against me" alone is not.
 6. Write the brief to `$DATA/brief-<today>.json`. This file MUST exist
    when you finish, even on a no-trade day (narrative explains why no trade).
 
@@ -75,7 +84,10 @@ prompt (referred to below as `$DATA`).
 ```
 
    For `trades_settled`, read what `paper.py settle` moved into
-   `$DATA/closed.jsonl` today (check the `settled` timestamps).
+   `$DATA/closed.jsonl` today (check the `settled` timestamps). Positions
+   you closed early appear there too with `"result": "closed"` and no
+   `won` — include them in `trades_settled` as-is so the dashboard can
+   label them CLOSED rather than WIN/LOSS.
 
 ## Measure yourself, not just the markets
 
