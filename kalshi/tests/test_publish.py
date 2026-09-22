@@ -169,3 +169,51 @@ def test_stats_brier_baseline_is_the_yardstick():
             closed("C", True, "2026-07-05", fair_value=0.9)]
     s = publish.stats(rows, {"bankroll": 0, "positions": []}, {})
     assert s["brier"] > s["brier_baseline"]
+
+
+# --- title lookups ---
+
+@pytest.fixture
+def title_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(publish, "TITLE_CACHE", tmp_path / "title-cache.json")
+    return tmp_path / "title-cache.json"
+
+
+def http404(t, tries=1):
+    import urllib.error
+    raise urllib.error.HTTPError("http://x", 404, "Not Found", None, None)
+
+
+def test_title_map_skips_grouped_research_tickers(title_cache, monkeypatch):
+    """The judgment step groups passes under composite keys like
+    "KXLLM1/KXANTHSHARE/..." — notes, not tickers; never ask the API."""
+    calls = []
+    monkeypatch.setattr(publish.kalshi, "get_market",
+                        lambda t, tries=1: calls.append(t) or {"title": "x"})
+    out = publish.title_map(["KXLLM1/KXANTHSHARE/KXTENCENTSHARE"], {})
+    assert calls == [] and out == {}
+
+
+def test_title_map_negative_caches_404s(title_cache, monkeypatch, capsys):
+    """Delisted tickers 404 forever; re-fetching the same dead lookups every
+    daily run spams the log and wastes API calls. One 404 = cached miss."""
+    monkeypatch.setattr(publish.kalshi, "get_market", http404)
+    publish.title_map(["KXDEAD-26AUG"], {})
+    assert "! title KXDEAD-26AUG" in capsys.readouterr().out
+    calls = []
+    monkeypatch.setattr(publish.kalshi, "get_market",
+                        lambda t, tries=1: calls.append(t) or {"title": "x"})
+    out = publish.title_map(["KXDEAD-26AUG"], {})
+    assert calls == [] and out == {}
+
+
+def test_title_map_retries_transient_errors_next_run(title_cache, monkeypatch):
+    """A timeout is not a 404 — the next run must try again."""
+    def boom(t, tries=1):
+        raise OSError("timed out")
+    monkeypatch.setattr(publish.kalshi, "get_market", boom)
+    publish.title_map(["KXSLOW-26SEP"], {})
+    monkeypatch.setattr(publish.kalshi, "get_market",
+                        lambda t, tries=1: {"title": "Recovered"})
+    out = publish.title_map(["KXSLOW-26SEP"], {})
+    assert out == {"KXSLOW-26SEP": "Recovered"}
