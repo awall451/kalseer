@@ -14,6 +14,7 @@ status.json is owned by bin/daily.sh, not this script.
 import json
 import shutil
 import datetime as dt
+import urllib.error
 
 import kalshi
 import paper
@@ -70,13 +71,18 @@ def title_map(tickers, hist) -> dict:
     for t in sorted({tk for tk in tickers if tk}):
         if titles.get(t):
             continue
-        if cache.get(t):
-            titles[t] = cache[t]
+        if t in cache:  # hit — an empty value is a remembered 404 miss
+            if cache[t]:
+                titles[t] = cache[t]
             continue
-        if "*" in t or " " in t:  # research notes, not real tickers
+        if any(c in t for c in "*/ "):  # research notes, not real tickers
             continue
         try:
             titles[t] = (kalshi.get_market(t, tries=1).get("title") or "").replace("*", "")
+        except urllib.error.HTTPError as e:
+            print(f"! title {t}: {e}")
+            if e.code == 404:  # delisted for good — stop asking every run
+                cache[t] = ""
         except Exception as e:
             print(f"! title {t}: {e}")
     cache.update({t: v for t, v in titles.items() if v})
