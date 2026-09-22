@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the Kalseer operator nightly at 02:00 (catches up after boot)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
