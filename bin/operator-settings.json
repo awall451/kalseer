@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Read(//home/dillon/kalseer-data/**)",
+      "Edit(//home/dillon/kalseer-data/operator/**)",
+      "Bash(git *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr comment *)",
+      "Bash(gh issue list *)",
+      "Bash(python3 *)",
+      "Bash(npm ci)",
+      "Bash(npm run build *)",
+      "Bash(npm run build)",
+      "Bash(npm test *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(find *)",
+      "Bash(curl -s https://api.elections.kalshi.com/*)",
+      "WebSearch",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:api.elections.kalshi.com)"
+    ],
+    "deny": [
+      "Bash(gh pr merge *)",
+      "Bash(gh pr close *)",
+      "Bash(git push origin main*)",
+      "Bash(git push * main*)"
+    ]
+  }
+}

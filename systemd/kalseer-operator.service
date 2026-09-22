@@ -1,0 +1,21 @@
+# Template — copy to ~/.config/systemd/user/ and replace /path/to/kalseer
+# (and add Environment= lines for KALSEER_* config as needed).
+[Unit]
+Description=Kalseer nightly operator (self-improvement session, PRs + auto-merge)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/kalseer
+ExecStart=/path/to/kalseer/bin/operator.sh
+# claude + gh must be on PATH for the user service:
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Required config:
+# Environment=KALSEER_DATA_DIR=%h/kalseer-data
+# Recommended (same topic daily.sh uses):
+# Environment=KALSEER_ALERT_URL=https://ntfy.sh/your-secret-topic
+# Optional overrides:
+# Environment=KALSEER_OPERATOR_WORKDIR=%h/kalseer-op
+# Environment=KALSEER_OPERATOR_TIMEOUT=5400
+TimeoutStartSec=3h
