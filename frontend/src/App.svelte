@@ -228,15 +228,17 @@
       {#if brief.trades_settled?.length}
         <section class="pos-grid">
           {#each brief.trades_settled as t}
-            <a class="pos-tile {t.won ? 'good' : 'bad'}" href={marketUrl(t.ticker, slugs)}
+            <a class="pos-tile {t.result === 'closed' ? '' : t.won ? 'good' : 'bad'}"
+               href={marketUrl(t.ticker, slugs)}
                target="_blank" rel="noopener">
               <div class="pos-title">{t.title || titles[t.ticker] || t.ticker}</div>
               <div class="pos-line">
                 <span class="mono side">{(t.side ?? '').toUpperCase()}</span>
-                <span class="chipw {t.won ? 'win' : 'loss'}">{t.won ? 'WIN' : 'LOSS'}</span>
+                <span class="chipw {t.result === 'closed' ? 'exit' : t.won ? 'win' : 'loss'}"
+                  >{t.result === 'closed' ? 'CLOSED' : t.won ? 'WIN' : 'LOSS'}</span>
                 <span class="mono">{fmtSigned$(t.pnl)}</span>
               </div>
-              <div class="muted pos-sub">settled {selected}</div>
+              <div class="muted pos-sub">{t.result === 'closed' ? 'closed' : 'settled'} {selected}</div>
             </a>
           {/each}
         </section>
@@ -413,6 +415,7 @@
   .chipw { border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: 650; }
   .chipw.win { background: var(--series-1-soft); color: var(--good-text); }
   .chipw.loss { background: var(--series-1-soft); color: var(--critical); }
+  .chipw.exit { background: var(--chip); color: var(--ink-2); }
   .passed { padding: 6px 0; }
   .passed-group { padding: 6px 0; }
   .passed-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }

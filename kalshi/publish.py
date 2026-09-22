@@ -144,7 +144,8 @@ def equity_curve(closed, portfolio, hist, today=None):
                 realized += r["pnl"]
                 if settled == day:
                     events.append({"ticker": r["ticker"], "pnl": r["pnl"],
-                                   "won": r["won"]})
+                                   "won": r.get("won"),
+                                   "result": r.get("result")})
             else:
                 held.append(r)
         unrealized = sum(value_on(r, day) for r in held) - sum(
@@ -184,7 +185,9 @@ def wilson(wins: int, n: int, z: float = 1.96):
 
 def calibration(closed):
     buckets = {}
-    for r in closed:
+    # Early exits (result "closed") never learned their outcome; scoring one
+    # as a win or a loss would corrupt the chart this experiment exists for.
+    for r in (r for r in closed if r.get("result") != "closed"):
         b = min(int(r["fair_value"] * 10), 9)
         buckets.setdefault(b, []).append(r)
     out = []
@@ -210,6 +213,9 @@ def stats(closed, portfolio, hist):
         marked += (h[-1]["mark"] if h else x["entry_price"]) * x["contracts"]
     realized = sum(r["pnl"] for r in closed)
     unrealized = marked - exposure
+    # money spans every closed row; win/Brier skill only the market-resolved
+    # ones (an early exit has no outcome to score)
+    resolved = [r for r in closed if r.get("result") != "closed"]
     s = {
         "bankroll": portfolio["bankroll"],
         # marked to market, not held at cost — the headline number should move
@@ -217,29 +223,32 @@ def stats(closed, portfolio, hist):
         "equity": round(portfolio["bankroll"] + marked, 2),
         "exposure": round(exposure, 2),
         "open_positions": len(positions),
-        "settled": len(closed),
-        "wins": sum(1 for r in closed if r["won"]),
+        "settled": len(resolved),
+        "closed_early": len(closed) - len(resolved),
+        "wins": sum(1 for r in resolved if r["won"]),
         "total_pnl": round(realized, 2),
         "unrealized_pnl": round(unrealized, 2),
-        "fees_paid": round(sum(r["fee_paid"] for r in closed), 2),
+        "fees_paid": round(sum(r["fee_paid"] + r.get("exit_fee", 0.0)
+                               for r in closed), 2),
         "starting_bankroll": paper.STARTING_BANKROLL,
     }
     staked = sum(paper.position_cost(r) for r in closed)
     s["staked"] = round(staked, 2)
-    s["win_rate"] = round(s["wins"] / len(closed), 3) if closed else None
+    s["win_rate"] = round(s["wins"] / len(resolved), 3) if resolved else None
     # Two different denominators, both wanted, previously conflated under one
     # ambiguous "ROI" tile: return on the capital actually put at risk ...
     s["roi_staked"] = round(realized / staked, 4) if staked else None
     # ... and the fund-level number the hero equity implies.
     s["return_total"] = round((realized + unrealized) / paper.STARTING_BANKROLL, 4)
     s["brier"] = (round(sum((r["fair_value"] - (1.0 if r["won"] else 0.0)) ** 2
-                            for r in closed) / len(closed), 4) if closed else None)
+                            for r in resolved) / len(resolved), 4)
+                  if resolved else None)
     # What a no-skill forecaster scores on the same trades: always predicting
     # the observed base rate. Brier alone reads as a number with no yardstick.
-    if closed:
-        base = s["wins"] / len(closed)
+    if resolved:
+        base = s["wins"] / len(resolved)
         s["brier_baseline"] = round(sum((base - (1.0 if r["won"] else 0.0)) ** 2
-                                        for r in closed) / len(closed), 4)
+                                        for r in resolved) / len(resolved), 4)
     else:
         s["brier_baseline"] = None
     return s

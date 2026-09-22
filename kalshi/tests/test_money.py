@@ -120,6 +120,76 @@ def test_settle_leaves_unresolved_open(ledger, monkeypatch):
     assert len(paper.load()["positions"]) == 1
 
 
+# --- closing early ---
+
+def test_close_returns_proceeds_and_records_row(ledger):
+    paper.cmd_open("EXIT", "yes", 0.40, 50, 0.6, "test")
+    bankroll = paper.load()["bankroll"]
+    paper.cmd_close("EXIT", "0.55", "thesis dead, salvaging value")
+    p = paper.load()
+    assert p["positions"] == []
+    exit_fee = kalshi.taker_fee(0.55, 50)
+    assert p["bankroll"] == pytest.approx(bankroll + 0.55 * 50 - exit_fee)
+    row = json.loads(paper.CLOSED.read_text().splitlines()[0])
+    entry_fee = kalshi.taker_fee(0.40, 50)
+    assert row["result"] == "closed"
+    assert "won" not in row  # no market outcome — must never score calibration
+    assert row["exit_price"] == 0.55
+    assert row["exit_fee"] == exit_fee
+    assert row["payout"] == pytest.approx(0.55 * 50 - exit_fee)
+    assert row["pnl"] == pytest.approx(0.55 * 50 - exit_fee - 0.40 * 50 - entry_fee)
+    assert row["settled"] == row["recorded"]
+
+
+def test_close_without_position_exits(ledger):
+    with pytest.raises(SystemExit):
+        paper.cmd_close("GHOST", "0.50", "nothing there")
+
+
+def test_close_takes_oldest_of_duplicate_tickers(ledger):
+    paper.cmd_open("DUP", "yes", 0.10, 10, 0.5, "first")
+    paper.cmd_open("DUP", "yes", 0.20, 10, 0.5, "second")
+    paper.cmd_close("DUP", "0.30", "exit one")
+    p = paper.load()
+    assert [x["entry_price"] for x in p["positions"]] == [0.20]
+    row = json.loads(paper.CLOSED.read_text().splitlines()[0])
+    assert row["entry_price"] == 0.10
+
+
+def test_closing_does_not_refund_the_daily_cap(ledger):
+    """The cap counts opens, not open positions — closing must not create
+    room for a fourth entry on the same day."""
+    open_n(3)
+    paper.cmd_close("TEST-0", "0.50", "exit")
+    with pytest.raises(SystemExit) as e:
+        paper.cmd_open("TEST-4", "yes", 0.10, 10, 0.5, "test")
+    assert e.value.code == paper.EXIT_GUARDRAIL
+
+
+def test_report_scores_only_resolved_rows(ledger, capsys):
+    rows = [
+        {"result": "yes", "won": True, "fair_value": 0.95, "pnl": 1.0,
+         "entry_price": 0.9, "contracts": 1, "fee_paid": 0.01},
+        {"result": "closed", "fair_value": 0.95, "pnl": -0.5,
+         "entry_price": 0.9, "contracts": 1, "fee_paid": 0.01},
+    ]
+    with paper.CLOSED.open("w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    paper.cmd_report()
+    out = capsys.readouterr().out
+    # money counts both rows; skill counts only the resolved one
+    assert "$+0.50" in out
+    assert "said 90%-100%: happened 100% (n=1)" in out
+
+
+def test_report_survives_only_early_closes(ledger, capsys):
+    row = {"result": "closed", "fair_value": 0.5, "pnl": -0.5,
+           "entry_price": 0.4, "contracts": 1, "fee_paid": 0.01}
+    paper.CLOSED.write_text(json.dumps(row) + "\n")
+    paper.cmd_report()  # must not divide by zero resolved rows
+
+
 # --- calibration bucketing ---
 
 def test_calibration_buckets(ledger, capsys):

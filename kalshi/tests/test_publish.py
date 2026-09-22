@@ -26,6 +26,16 @@ def closed(ticker, won, settled, **kw):
     return p
 
 
+def closed_early(ticker, settled, exit_price=0.55, exit_fee=1.0, **kw):
+    p = pos(ticker, **kw)
+    proceeds = round(exit_price * p["contracts"] - exit_fee, 2)
+    p.update({"result": "closed", "exit_price": exit_price, "exit_fee": exit_fee,
+              "payout": proceeds,
+              "pnl": round(proceeds - p["entry_price"] * p["contracts"] - p["fee_paid"], 2),
+              "settled": f"{settled}T14:00:00+00:00"})
+    return p
+
+
 # --- marks survive a resolving market ---
 
 def test_yes_price_uses_mid_of_live_book():
@@ -159,6 +169,38 @@ def test_stats_equity_moves_with_marks():
     s = publish.stats([], {"bankroll": 459.0, "positions": [p]}, hist)
     assert s["unrealized_pnl"] == pytest.approx(19.0)
     assert s["equity"] == pytest.approx(519.0)
+
+
+def test_calibration_skips_early_closes():
+    """An early exit has no yes/no outcome; scoring it as a loss (or a win)
+    would corrupt the one chart the whole experiment exists to draw."""
+    rows = [closed("A", True, "2026-07-03", fair_value=0.78),
+            closed_early("B", "2026-07-04", fair_value=0.78)]
+    [b] = publish.calibration(rows)
+    assert b["n"] == 1 and b["actual"] == 1.0
+
+
+def test_stats_early_close_counts_money_not_skill():
+    rows = [closed_early("B", "2026-07-04", entry=0.40, n=100)]
+    s = publish.stats(rows, {"bankroll": 0.0, "positions": []}, {})
+    assert s["settled"] == 0 and s["closed_early"] == 1
+    assert s["wins"] == 0 and s["win_rate"] is None and s["brier"] is None
+    assert s["total_pnl"] == pytest.approx(rows[0]["pnl"])
+    assert s["fees_paid"] == pytest.approx(2.0)  # entry + exit
+
+
+def test_curve_books_early_close_as_cash_event():
+    row = closed_early("B", "2026-07-04", opened="2026-07-01",
+                       entry=0.40, n=100)
+    start = publish.paper.STARTING_BANKROLL
+    bankroll = start - (0.40 * 100 + 1.0) + row["payout"]
+    curve = publish.equity_curve([row], {"bankroll": bankroll, "positions": []},
+                                 {}, today="2026-07-05")
+    by_day = {p["t"][:10]: p for p in curve[1:]}
+    [e] = by_day["2026-07-04"]["events"]
+    assert e["result"] == "closed" and e["won"] is None
+    assert e["pnl"] == row["pnl"]
+    assert curve[-1]["cash"] == pytest.approx(bankroll)
 
 
 def test_stats_brier_baseline_is_the_yardstick():
