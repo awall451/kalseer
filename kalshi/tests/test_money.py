@@ -243,3 +243,54 @@ def test_market_close_time_field_order(field):
 
 def test_market_close_time_ignores_unparseable():
     assert paper.market_close_time({"close_time": "not a date"}) is None
+
+
+# --- status mark-to-market ---
+
+def test_status_marks_yes_position_at_its_bid(ledger, monkeypatch, capsys):
+    paper.cmd_open("MTM-YES", "yes", 0.40, 50, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market", lambda t, **kw: {
+        "yes_bid_dollars": "0.55", "yes_ask_dollars": "0.57"})
+    capsys.readouterr()
+    paper.cmd_status()
+    out = capsys.readouterr().out
+    # a YES exit fetches the yes bid; unrealized = proceeds net of exit fee
+    proceeds = 0.55 * 50 - kalshi.taker_fee(0.55, 50)
+    cost = 0.40 * 50 + kalshi.taker_fee(0.40, 50)
+    assert "now 0.55" in out
+    assert f"unreal ${proceeds - cost:+.2f}" in out
+
+
+def test_status_marks_no_position_at_one_minus_yes_ask(ledger, monkeypatch, capsys):
+    paper.cmd_open("MTM-NO", "no", 0.40, 50, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market", lambda t, **kw: {
+        "yes_bid_dollars": "0.55", "yes_ask_dollars": "0.70"})
+    capsys.readouterr()
+    paper.cmd_status()
+    out = capsys.readouterr().out
+    assert "now 0.30" in out  # 1 - yes_ask: what the NO side sells for
+
+
+def test_status_survives_api_failure(ledger, monkeypatch, capsys):
+    paper.cmd_open("MTM-DOWN", "yes", 0.40, 50, 0.6, "test")
+
+    def boom(t, **kw):
+        raise OSError("api down")
+
+    monkeypatch.setattr(paper.kalshi, "get_market", boom)
+    capsys.readouterr()
+    paper.cmd_status()
+    out = capsys.readouterr().out
+    assert "MTM-DOWN" in out
+    assert "now ?" in out
+
+
+def test_status_skips_mark_on_empty_book(ledger, monkeypatch, capsys):
+    paper.cmd_open("MTM-THIN", "no", 0.40, 50, 0.6, "test")
+    monkeypatch.setattr(paper.kalshi, "get_market", lambda t, **kw: {
+        "yes_bid_dollars": "0", "yes_ask_dollars": "0"})
+    capsys.readouterr()
+    paper.cmd_status()
+    out = capsys.readouterr().out
+    # 1 - 0 would price the NO exit at a fantasy 1.00; an empty book is no mark
+    assert "now ?" in out

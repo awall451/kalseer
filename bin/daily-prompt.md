@@ -54,7 +54,10 @@ prompt (referred to below as `$DATA`).
    dead (new information, not price wobble):
    `python3 kalshi/paper.py close TICKER PRICE "reasoning"`
    where PRICE is what your side sells for right now (its bid; for a NO
-   position that is 1 − yes_ask). A close is a cash event, not a resolved
+   position that is 1 − yes_ask). `paper.py status` already prints this per
+   position as `now X` alongside the unrealized P&L net of the exit fee
+   (`now ?` when the book is empty or the API is down — don't guess a mark).
+   A close is a cash event, not a resolved
    forecast — it never enters the calibration data, and it does not refund
    the 3-opens/day cap. Record the honest exit reasoning; "freeing capital"
    is a valid reason, "the price moved against me" alone is not.

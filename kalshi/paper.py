@@ -205,14 +205,42 @@ def cmd_settle():
     print(f"{n} settled, {len(still_open)} still open, bankroll ${p['bankroll']:.2f}")
 
 
+def position_mark(pos):
+    """(mark, unrealized pnl) for an open position, or None.
+
+    mark is what the held side sells for right now — the exact PRICE argument
+    `close` wants (YES: the yes bid; NO: 1 − yes ask). unrealized is the close
+    proceeds net of the exit fee minus what was paid. None when the API is
+    down or the book is empty: an absent mark beats a fantasy one.
+    """
+    try:
+        m = kalshi.get_market(pos["ticker"], tries=1)
+    except Exception:
+        return None
+    try:
+        yes_bid = float(m.get("yes_bid_dollars") or 0)
+        yes_ask = float(m.get("yes_ask_dollars") or 0)
+    except ValueError:
+        return None
+    mark = yes_bid if pos["side"] == "yes" else (1 - yes_ask if yes_ask else 0)
+    if not 0 < mark < 1:
+        return None
+    proceeds = mark * pos["contracts"] - kalshi.taker_fee(mark, pos["contracts"])
+    return mark, round(proceeds - position_cost(pos), 2)
+
+
 def cmd_status():
     p = load()
     at_risk = sum(x["entry_price"] * x["contracts"] + x["fee_paid"] for x in p["positions"])
     print(f"bankroll ${p['bankroll']:.2f}  |  at risk ${at_risk:.2f}  |  "
           f"{len(p['positions'])} open positions")
     for x in p["positions"]:
+        marked = position_mark(x)
+        mtm = (f"now {marked[0]:.2f} unreal ${marked[1]:+.2f}" if marked
+               else "now ?")
         print(f"  {x['side'].upper():>3} {x['contracts']:>3}x {x['ticker']:<40} "
-              f"@ {x['entry_price']:.2f} fair {x['fair_value']:.2f}  ({x['opened'][:10]})")
+              f"@ {x['entry_price']:.2f} fair {x['fair_value']:.2f}  "
+              f"({x['opened'][:10]})  {mtm}")
 
 
 def cmd_report():
