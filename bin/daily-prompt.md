@@ -41,6 +41,14 @@ prompt (referred to below as `$DATA`).
    - Rotten Tomatoes thresholds → current score + review count + threshold math
    - Econ data (CPI etc.) → Cleveland Fed nowcast and similar public nowcasts
    - Anything else → WebSearch for primary sources; ignore vibes and headlines
+   To read boards, rules, and settlements precisely, use the CLI instead of
+   writing throwaway fetch scripts:
+   `python3 kalshi/kalshi.py market TICKER [TICKER ...]` (full detail: exact
+   bid/ask strings, rules text, and `expiration_value` once settled),
+   `python3 kalshi/kalshi.py event EVENT_TICKER` (every strike, one line),
+   `python3 kalshi/kalshi.py series SERIES_TICKER [STATUS]` (STATUS defaults
+   to `open`; use `settled` to read finals). Prices print as the API's exact
+   strings — quote them verbatim in the watchlist.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
