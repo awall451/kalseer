@@ -4,7 +4,7 @@ Filters out parlays and dead markets, then ranks what's left so Claude can
 research the top of the list for mispricings. Writes a dated JSON snapshot to
 data/ and prints a human-readable table.
 
-Usage: python3 scanner.py [--days N] [--min-volume V] [--top K]
+Usage: python3 scanner.py [--days N] [--min-volume V] [--top K] [--per-event M]
 """
 
 import argparse
@@ -93,11 +93,32 @@ def scan(days: int, min_volume: float):
     return rows, n_seen
 
 
+def cap_per_event(rows, per_event: int):
+    """Keep at most per_event strikes of any one event (rows already ranked
+    best-first, so the most liquid strikes survive). A single strike ladder
+    was eating up to 7 of the 40 shortlist slots; the judgment step can pull
+    any surfaced event's full board with `kalshi.py event`. 0 disables."""
+    if per_event <= 0:
+        return rows
+    kept, out = {}, []
+    for r in rows:
+        et = r["event_ticker"]
+        if not et:
+            out.append(r)
+            continue
+        kept[et] = kept.get(et, 0) + 1
+        if kept[et] <= per_event:
+            out.append(r)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=10)
     ap.add_argument("--min-volume", type=float, default=500)
     ap.add_argument("--top", type=int, default=40)
+    ap.add_argument("--per-event", type=int, default=3,
+                    help="max strikes per event in the shortlist (0 = no cap)")
     ap.add_argument("--all-categories", action="store_true")
     args = ap.parse_args()
 
@@ -106,6 +127,7 @@ def main():
         rows = [r for r in rows if r["category"] in PREFERRED_CATEGORIES]
     # rank: liquid, closing soonish, price away from extremes (room to be wrong)
     rows.sort(key=lambda r: -r["volume_24h"])
+    rows = cap_per_event(rows, args.per_event)
     rows = rows[: args.top]
 
     DATA.mkdir(parents=True, exist_ok=True)
