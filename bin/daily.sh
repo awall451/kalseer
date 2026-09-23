@@ -16,6 +16,8 @@
 #                       body works). Also pings once on recovery.
 #   KALSEER_ALERT_CMD   if set, run `$KALSEER_ALERT_CMD "<message>"` instead
 #                       of / in addition to the URL POST.
+#   KALSEER_NO_SELF_UPDATE  if set, skip the fast-forward to origin at start
+#                       (pin the checkout while debugging a bad merge).
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,6 +34,19 @@ LOG="$LOG_DIR/daily-$(date +%F).log"
 exec >>"$LOG" 2>&1
 
 echo "=== daily run $(date -Is) (data: $DATA_DIR) ==="
+
+# Run today's pipeline on today's merged code — the nightly operator merges
+# green PRs overnight (operator.sh) but deliberately never touches this
+# checkout, so without this pull those PRs never deploy. Safe by construction:
+# ff-only, skipped on a dirty tree, and a failed pull continues on old code.
+if [ -z "${KALSEER_NO_SELF_UPDATE:-}" ]; then
+  bash bin/self-update.sh "$ROOT" bin/daily.sh
+  if [ $? -eq 3 ]; then
+    echo "--- self-update: daily.sh changed; re-exec"
+    KALSEER_NO_SELF_UPDATE=1 exec bash "$0" "$@"
+  fi
+fi
+
 FAILED_STEP=""
 AUTH_FAILED=""
 
