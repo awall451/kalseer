@@ -49,6 +49,23 @@ def iter_markets(status: str = "open", max_pages: int = 200,
             return
 
 
+def iter_events(status: str = "open", with_nested_markets: bool = False,
+                max_pages: int = 200):
+    """Yield all events with the given status, paginating (200/page).
+
+    Unlike the /markets walk, this exhausts: parlay combinations are not
+    events, so the open universe is ~14k events, not 800k+ markets.
+    """
+    cursor = None
+    for _ in range(max_pages):
+        d = _get("/events", limit=200, status=status, cursor=cursor,
+                 with_nested_markets=with_nested_markets or None)
+        yield from d.get("events", [])
+        cursor = d.get("cursor")
+        if not cursor:
+            return
+
+
 def get_market(ticker: str, tries: int = 4) -> dict:
     return _get(f"/markets/{ticker}", tries=tries)["market"]
 
