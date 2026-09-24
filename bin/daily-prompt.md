@@ -35,7 +35,12 @@ prompt (referred to below as `$DATA`).
    happened, and what you concluded. See "Measure yourself" below.
 2. Pick the 3–6 most promising candidates. Prioritize markets that settle on
    public primary data you can actually check:
-   - AAA gas prices → gasprices.aaa.com (the literal settlement source)
+   - AAA gas prices → gasprices.aaa.com (the literal settlement source).
+     The pipeline also captures the print deterministically before you run:
+     the last line of `$DATA/aaa/prints.jsonl` for today's date
+     has every retention cell as the page's exact strings (raw HTML archived
+     next to it under `aaa/raw/`) — reconcile against it, and backfill any
+     gap day from the journal instead of the page's aging retention cells
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math

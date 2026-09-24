@@ -92,6 +92,11 @@ $(cat bin/daily-prompt.md)" \
   return "$rc"
 }
 
+# Settlement-critical AAA print, captured before anything that can wedge:
+# raw page archived first, so a day of the gas/diesel series can never be
+# lost to a failed judgment step again (gap #2 cost 12 runs in Sep 2026).
+run_step aaa     python3 kalshi/aaa.py
+
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
 run_step claude  claude_step
