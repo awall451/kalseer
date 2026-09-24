@@ -49,6 +49,9 @@ prompt (referred to below as `$DATA`).
    `python3 kalshi/kalshi.py series SERIES_TICKER [STATUS]` (STATUS defaults
    to `open`; use `settled` to read finals). Prices print as the API's exact
    strings — quote them verbatim in the watchlist.
+   For NWS climate reports (rain scoring), skip the two-step products dance:
+   `python3 kalshi/wx.py cli LOC` (LOC e.g. DCA, NYC) prints the newest CLI
+   report verbatim; `--list` shows archived versions, `--id UUID` one of them.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
