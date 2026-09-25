@@ -187,3 +187,12 @@ nobody watching. That changes what waiting means:
   that one answers, name the blocked host explicitly in the brief as an
   operator action item. Don't infer around missing settlement data — a market
   whose settlement metric you cannot read is a pass, every time.
+- Blocked-host claims expire when the allowlist changes. The allowlist is
+  `.claude/settings.json` in this repo (`permissions.allow` —
+  `WebFetch(domain:...)` and `Bash(...)` rules) and you can Read it. The
+  operator adds hosts overnight and the fix deploys with the morning
+  self-update, so a "proven blocked" line in the watchlist may predate the
+  entry that unblocked it. Before passing on a market because its settlement
+  source is "blocked", check the allowlist: if the host is listed, re-test it
+  live this run, then update the ledger — retire the hazard line if it
+  answers, or re-date the proof (fresh same-batch control) if it still fails.
