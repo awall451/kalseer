@@ -11,6 +11,8 @@
       "Bash(curl -s https://gasprices.aaa.com/*)",
       "Bash(curl -s * https://api.elections.kalshi.com/*)",
       "Bash(curl -s * https://api.weather.gov/*)",
+      "Bash(curl -s https://services9.arcgis.com/*)",
+      "Bash(curl -s * https://services9.arcgis.com/*)",
       "WebSearch",
       "WebFetch(domain:gasprices.aaa.com)",
       "WebFetch(domain:api.weather.gov)",
