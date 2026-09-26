@@ -35,6 +35,21 @@ exec >>"$LOG" 2>&1
 
 echo "=== daily run $(date -Is) (data: $DATA_DIR) ==="
 
+FAILED_STEP=""
+
+# A Persistent= catch-up run (host asleep at 08:00) fires the moment the
+# machine wakes, sometimes before DNS is up — gap #1 (2026-08-31..09-02)
+# burned the whole catch-up run AND its failure alert on name resolution.
+# Wait, bounded, before spending the run; if the network never appears,
+# continue anyway so status.json still records an honest failure.
+echo "--- step: network"
+if bash bin/wait-net.sh; then
+  echo "--- ok: network"
+else
+  echo "--- FAILED: network (probe unreachable after ${KALSEER_NET_WAIT:-600}s; proceeding)"
+  FAILED_STEP="network"
+fi
+
 # Run today's pipeline on today's merged code — the nightly operator merges
 # green PRs overnight (operator.sh) but deliberately never touches this
 # checkout, so without this pull those PRs never deploy. Safe by construction:
@@ -47,7 +62,6 @@ if [ -z "${KALSEER_NO_SELF_UPDATE:-}" ]; then
   fi
 fi
 
-FAILED_STEP=""
 AUTH_FAILED=""
 
 alert() { # alert <message> — best-effort push; never fails the pipeline
