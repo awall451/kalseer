@@ -1,0 +1,17 @@
+# Template — copy to ~/.config/systemd/user/ and replace /path/to/kalseer
+# (and add Environment= lines for KALSEER_* config as needed).
+[Unit]
+Description=Kalseer evening claude-auth probe (operator item #18, gap #2)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/kalseer
+ExecStart=/path/to/kalseer/bin/auth-probe.sh
+# claude must be on PATH for the user service:
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Strongly recommended — the probe is pointless without an alert sink
+# (same topic daily.sh uses):
+# Environment=KALSEER_ALERT_URL=https://ntfy.sh/your-secret-topic
+TimeoutStartSec=15min
