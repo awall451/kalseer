@@ -92,9 +92,17 @@ claude_step() {
   # unit's TimeoutStartSec.
   local out rc
   out="$(mktemp)"
+  # The repo allowlist's Edit(data/**) only matches the default ./data layout;
+  # a deployed KALSEER_DATA_DIR lives outside the checkout, so the judgment
+  # step could never Edit its journal and every watchlist refresh was a
+  # full-file Write rewrite. Grant the file tools on the run's actual data
+  # dir instead of hardcoding a host path ("//" = absolute in rule syntax;
+  # $DATA_DIR brings the leading slash).
   timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "Data directory: $DATA_DIR
 $(cat bin/daily-prompt.md)" \
-    --permission-mode default 2>&1 | tee "$out"
+    --permission-mode default \
+    --allowedTools "Read(/$DATA_DIR/**)" "Edit(/$DATA_DIR/**)" \
+                   "Write(/$DATA_DIR/**)" 2>&1 | tee "$out"
   rc=${PIPESTATUS[0]}
   # Expired CLI credentials fail every run until a human re-logs-in; name the
   # condition so the alert says what to do (operator item #18 — a silent
