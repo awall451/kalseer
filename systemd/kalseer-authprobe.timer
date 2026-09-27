@@ -1,0 +1,9 @@
+[Unit]
+Description=Probe claude CLI credentials nightly at 20:00 (catches up after boot)
+
+[Timer]
+OnCalendar=*-*-* 20:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
