@@ -7,6 +7,11 @@ deploy, and git commit run after you. Your job is ONLY: research, trade, brief.
 All data files live in the data directory given on the first line of this
 prompt (referred to below as `$DATA`).
 
+You run from the repo root. Invoke the repo CLIs by relative path exactly as
+written below (`python3 kalshi/paper.py …`) — the tool allowlist matches the
+literal command text, so an absolute path to the same script degrades to
+approval-blocked (proven live 9/27).
+
 ## Context
 
 - Paper trading on Kalshi prediction markets. Phase 1 experiment: prove (or
