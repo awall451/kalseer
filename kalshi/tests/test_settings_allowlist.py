@@ -69,3 +69,21 @@ def test_operator_settings_parse():
     assert "Bash(gh pr create *)" in allow  # the operator's whole job
     deny = json.loads(OPERATOR.read_text())["permissions"]["deny"]
     assert "Bash(gh pr merge *)" in deny  # the operator never merges
+
+def test_every_curl_host_has_quoted_url_twins():
+    """The judgment session must shell-quote URLs carrying query strings,
+    and the Bash matcher compares raw command text — so
+    `curl -s "https://host/…?f=json"` misses the unquoted prefix rule.
+    That is item #17's live failure (re-proven 9/27; reproduced by the
+    operator 9/28: the identical kalshi curl was allowed unquoted and
+    approval-blocked quoted). Every plain curl host rule needs its
+    quoted twins or query-string fetches silently degrade to denied."""
+    allow = load_allow(JUDGMENT)
+    plain = [rule for rule in allow
+             if rule.startswith("Bash(curl -s https://")]
+    assert plain, "the curl fallback rules are gone entirely"
+    for rule in plain:
+        for quote in ('"', "'"):
+            twin = rule.replace("curl -s https://",
+                                f"curl -s {quote}https://")
+            assert twin in allow, f"missing quoted twin: {twin}"
