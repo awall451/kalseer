@@ -24,6 +24,7 @@ CORE_JUDGMENT_GRANTS = [
     "Bash(python3 kalshi/scanner.py *)",
     "Bash(python3 kalshi/kalshi.py *)",
     "Bash(python3 kalshi/wx.py *)",
+    "Bash(python3 kalshi/portwatch.py *)",
     "Bash(python3 -c *)",
     "WebSearch",
     "WebFetch(domain:gasprices.aaa.com)",

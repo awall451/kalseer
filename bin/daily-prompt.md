@@ -62,6 +62,11 @@ approval-blocked (proven live 9/27).
    For NWS climate reports (rain scoring), skip the two-step products dance:
    `python3 kalshi/wx.py cli LOC` (LOC e.g. DCA, NYC) prints the newest CLI
    report verbatim; `--list` shows archived versions, `--id UUID` one of them.
+   For IMF PortWatch chokepoint transit calls (Hormuz settlement):
+   `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
+   prints daily n_total newest-first plus the newest published day and its
+   lag (the mostly-published-window gate). A quota error is final for this
+   run — respect its message, never hammer the shared endpoint.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
