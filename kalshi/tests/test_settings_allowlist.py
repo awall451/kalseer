@@ -88,3 +88,37 @@ def test_every_curl_host_has_quoted_url_twins():
             twin = rule.replace("curl -s https://",
                                 f"curl -s {quote}https://")
             assert twin in allow, f"missing quoted twin: {twin}"
+
+
+def test_middle_arg_curl_rules_have_quoted_url_twins():
+    """Item #17's failure shape, one variant over: the middle-arg rules
+    (`curl -s * https://host/…`) exist so extra flags can precede the URL —
+    but a flag-carrying curl of a query-string URL must ALSO quote it
+    (`curl -s -A "Mozilla/5.0" "https://host/…?q=1"`), and the raw-text
+    matcher misses the unquoted middle-arg rule exactly as it missed the
+    plain one. Every middle-arg curl rule needs its quoted twins too."""
+    allow = load_allow(JUDGMENT)
+    middle = [rule for rule in allow
+              if rule.startswith("Bash(curl -s * https://")]
+    assert middle, "the middle-arg curl rules are gone entirely"
+    for rule in middle:
+        for quote in ('"', "'"):
+            twin = rule.replace("curl -s * https://",
+                                f"curl -s * {quote}https://")
+            assert twin in allow, f"missing quoted twin: {twin}"
+
+
+def test_approval_market_route_hosts_have_curl_rules():
+    """Item #20: realclearpolling.com 403s WebFetch server-side, so
+    KXTRUMPAPPROVE is unpriceable; the watchlist names polls.votehub.com
+    as the alternate route and 'try realclearpolitics.com variant next
+    time'. Curl carries a different client fingerprint than WebFetch and
+    can set a browser User-Agent — but only if the hosts are allowlisted;
+    an unlisted curl degrades to denied in the headless run."""
+    allow = load_allow(JUDGMENT)
+    for host in ("polls.votehub.com", "api.votehub.com",
+                 "realclearpolling.com", "www.realclearpolling.com",
+                 "realclearpolitics.com", "www.realclearpolitics.com"):
+        assert f"Bash(curl -s https://{host}/*)" in allow, host
+        assert f"Bash(curl -s * https://{host}/*)" in allow, host
+    assert "WebFetch(domain:api.votehub.com)" in allow
