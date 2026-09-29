@@ -156,3 +156,33 @@ def test_usage_on_bad_args():
         portwatch.main([])
     with pytest.raises(SystemExit):
         portwatch.main(["nonsense"])
+
+
+def test_iso_string_dates_parse_like_epoch_ms(api, capsys):
+    """Item #19: the 9/28 live read crashed — the API now returns `date` as
+    an ISO string, not epoch ms. Both forms must yield the same rows."""
+    api["response"] = {
+        "features": [
+            {"attributes": {"date": "2026-09-15", "n_total": 4}},
+            {"attributes": {"date": "2026-09-16", "n_total": 1}},
+        ]
+    }
+    portwatch.main(["calls", "--since", "2026-09-01"])
+    out = capsys.readouterr().out.splitlines()
+    data = [line for line in out if not line.startswith("#")]
+    assert data == ["2026-09-16  1", "2026-09-15  4"]
+
+
+def test_iso_string_with_time_part_still_yields_the_day(api, capsys):
+    """ArcGIS string date fields may carry a time part; only the day
+    matters for daily transit calls."""
+    api["response"] = {
+        "features": [
+            {"attributes": {"date": "2026-09-20 00:00:00", "n_total": 7}},
+            {"attributes": {"date": "2026-09-19T00:00:00", "n_total": 6}},
+        ]
+    }
+    portwatch.main(["calls", "--since", "2026-09-01"])
+    out = capsys.readouterr().out.splitlines()
+    data = [line for line in out if not line.startswith("#")]
+    assert data == ["2026-09-20  7", "2026-09-19  6"]

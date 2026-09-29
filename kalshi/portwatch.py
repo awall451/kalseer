@@ -53,6 +53,15 @@ def _query(params: dict, tries: int = 2) -> dict:
     return body
 
 
+def _day(value) -> str:
+    """ArcGIS serves `date` as epoch ms or an ISO string (item #19: the
+    field type changed under us on 9/28), sometimes with a time part."""
+    if isinstance(value, str):
+        return datetime.date.fromisoformat(value[:10]).isoformat()
+    return datetime.datetime.fromtimestamp(
+        value / 1000, tz=datetime.timezone.utc).date().isoformat()
+
+
 def fetch_calls(port: str, since: str) -> list[tuple[str, object]]:
     """Daily (date, n_total) rows for a chokepoint, newest first."""
     body = _query({
@@ -65,9 +74,7 @@ def fetch_calls(port: str, since: str) -> list[tuple[str, object]]:
     rows = []
     for feature in body.get("features", []):
         attrs = feature["attributes"]
-        day = datetime.datetime.fromtimestamp(
-            attrs["date"] / 1000, tz=datetime.timezone.utc).date()
-        rows.append((day.isoformat(), attrs["n_total"]))
+        rows.append((_day(attrs["date"]), attrs["n_total"]))
     return sorted(rows, reverse=True)
 
 
