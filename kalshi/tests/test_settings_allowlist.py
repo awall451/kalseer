@@ -122,3 +122,34 @@ def test_approval_market_route_hosts_have_curl_rules():
         assert f"Bash(curl -s https://{host}/*)" in allow, host
         assert f"Bash(curl -s * https://{host}/*)" in allow, host
     assert "WebFetch(domain:api.votehub.com)" in allow
+
+
+def test_econ_release_hosts_have_curl_rules():
+    """Item #4: clevelandfed.org and bls.gov 403 WebFetch server-side (bot
+    protection, proven 8/8-8/9 with same-batch controls answering), keeping
+    the whole CPI/payrolls complex unpriceable. Same different-fingerprint
+    logic as item #20 (#35): curl can carry a browser User-Agent, but only
+    if the hosts are allowlisted — an unlisted curl degrades to denied in
+    the headless run. api.bls.gov is BLS's documented programmatic host
+    (public JSON timeseries API, no registration for v1) and the likeliest
+    of the three fingerprints to answer a plain client."""
+    allow = load_allow(JUDGMENT)
+    for host in ("clevelandfed.org", "www.clevelandfed.org",
+                 "bls.gov", "www.bls.gov", "api.bls.gov"):
+        assert f"Bash(curl -s https://{host}/*)" in allow, host
+        assert f"Bash(curl -s * https://{host}/*)" in allow, host
+    # the API host and the bare clevelandfed domain had no WebFetch rules
+    # either — the judgment host's other working fingerprint
+    assert "WebFetch(domain:api.bls.gov)" in allow
+    assert "WebFetch(domain:clevelandfed.org)" in allow
+
+
+def test_votehub_cli_grant_present():
+    """Item #20 companion: kalshi/votehub.py (approval/generic-ballot reads
+    off api.votehub.com, VoteHub's documented public API) is invoked by
+    relative path like every other repo CLI and needs its own Bash grant.
+    The grant rides in the same settings edit as item #4 because two open
+    PRs may not touch this file's allowlist region (the outer script cannot
+    resolve cross-PR conflicts); it is inert until the CLI lands."""
+    allow = load_allow(JUDGMENT)
+    assert "Bash(python3 kalshi/votehub.py *)" in allow
