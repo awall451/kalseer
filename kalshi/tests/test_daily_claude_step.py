@@ -5,8 +5,8 @@ deployed KALSEER_DATA_DIR lives outside the checkout, so the judgment step
 could never Edit its own journal — every watchlist refresh was a full-file
 Write rewrite (the source-hazards ledger's "data-dir edits still friction").
 The step must pass --allowedTools rules built from $DATA_DIR itself, so any
-deployment gets Read/Edit/Write on its data dir without host-specific paths
-in the public repo.
+deployment gets Read/Edit on its data dir without host-specific paths in
+the public repo (Edit rules cover all file-editing tools, Write included).
 
 The tests run the real claude_step function (extracted verbatim from
 daily.sh) against a stub `claude` binary that records its argv.
@@ -57,9 +57,19 @@ def test_judgment_step_gets_file_tools_on_the_data_dir(tmp_path):
     # Permission-rule absolute paths start with "//" — $DATA_DIR already
     # carries the leading slash, so the rule is "Edit(/$DATA_DIR/**)".
     for rule in ("Read(//srv/elsewhere/kalseer-data/**)",
-                 "Edit(//srv/elsewhere/kalseer-data/**)",
-                 "Write(//srv/elsewhere/kalseer-data/**)"):
+                 "Edit(//srv/elsewhere/kalseer-data/**)"):
         assert rule in rules, f"missing {rule} in {rules}"
+
+
+def test_no_write_rule_only_edit_matches_file_tools(tmp_path):
+    """Hazard 1f: the harness warns in every judgment log that
+    Write(path) rules "are not matched by file permission checks — only
+    Edit(path) rules are", and Edit rules already cover all file-editing
+    tools (Write included). The Write grant is dead weight that prints a
+    warning line into every daily log; it must stay gone."""
+    argv = run_claude_step(tmp_path, "/srv/elsewhere/kalseer-data")
+    rules = argv[argv.index("--allowedTools") + 1:]
+    assert not [rule for rule in rules if rule.startswith("Write(")], rules
 
 
 def test_permission_mode_stays_default(tmp_path):
