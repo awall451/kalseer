@@ -163,3 +163,15 @@ def test_bls_cli_grant_present():
     on every release day."""
     allow = load_allow(JUDGMENT)
     assert "Bash(python3 kalshi/bls.py *)" in allow
+
+
+def test_rt_cli_grant_present():
+    """rt-method-notes companion: kalshi/rt.py (the fresh-count pin the
+    judgment session otherwise re-derives by hand every RT day) is invoked
+    by relative path like every other repo CLI and needs its own Bash
+    grant. The grant rides in the same settings edit as item #4's bls.py
+    because two open PRs must not both touch this file's allowlist region
+    (the outer script cannot resolve cross-PR conflicts); it is inert
+    until the CLI lands."""
+    allow = load_allow(JUDGMENT)
+    assert "Bash(python3 kalshi/rt.py *)" in allow
