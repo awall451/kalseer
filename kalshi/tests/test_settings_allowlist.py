@@ -144,6 +144,22 @@ def test_econ_release_hosts_have_curl_rules():
     assert "WebFetch(domain:clevelandfed.org)" in allow
 
 
+def test_pmms_settlement_hosts_have_fetch_and_curl_rules():
+    """KX30YMORTW settles on Freddie Mac's weekly PMMS, but the judgment
+    session reads it via WebSearch -> press-release mirrors (9/25 brief:
+    'freddiemac.gcs-web.com / globenewswire') because no freddiemac host
+    has any rule — a settlement value that scores every Thursday 16:00Z
+    hanging off search-result freshness. Same shape as items #4/#20: the
+    primary source needs direct WebFetch + curl routes (quoted twins per
+    item #17) or the read silently degrades in the headless run."""
+    allow = load_allow(JUDGMENT)
+    for host in ("freddiemac.com", "www.freddiemac.com",
+                 "freddiemac.gcs-web.com"):
+        assert f"Bash(curl -s https://{host}/*)" in allow, host
+        assert f"Bash(curl -s * https://{host}/*)" in allow, host
+        assert f"WebFetch(domain:{host})" in allow, host
+
+
 def test_votehub_cli_grant_present():
     """Item #20 companion: kalshi/votehub.py (approval/generic-ballot reads
     off api.votehub.com, VoteHub's documented public API) is invoked by
