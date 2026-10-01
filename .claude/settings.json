@@ -8,6 +8,8 @@
       "Bash(python3 kalshi/wx.py *)",
       "Bash(python3 kalshi/portwatch.py *)",
       "Bash(python3 kalshi/votehub.py *)",
+      "Bash(python3 kalshi/bls.py *)",
+      "Bash(python3 kalshi/rt.py *)",
       "Bash(python3 -c *)",
       "Bash(curl -s https://api.elections.kalshi.com/*)",
       "Bash(curl -s https://api.weather.gov/*)",
