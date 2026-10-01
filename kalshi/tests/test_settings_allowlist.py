@@ -153,3 +153,13 @@ def test_votehub_cli_grant_present():
     resolve cross-PR conflicts); it is inert until the CLI lands."""
     allow = load_allow(JUDGMENT)
     assert "Bash(python3 kalshi/votehub.py *)" in allow
+
+
+def test_bls_cli_grant_present():
+    """Item #4 companion: kalshi/bls.py (CPI/payrolls/U-3 reads off
+    api.bls.gov's documented timeseries API, the route live-verified 9/30)
+    is invoked by relative path like every other repo CLI and needs its own
+    Bash grant — without it the judgment run falls back to hand-rolled curl
+    on every release day."""
+    allow = load_allow(JUDGMENT)
+    assert "Bash(python3 kalshi/bls.py *)" in allow
