@@ -63,6 +63,7 @@ if [ -z "${KALSEER_NO_SELF_UPDATE:-}" ]; then
 fi
 
 AUTH_FAILED=""
+CLI_OUTDATED=""
 
 alert() { # alert <message> — best-effort push; never fails the pipeline
   local msg="$1"
@@ -110,6 +111,13 @@ $(cat bin/daily-prompt.md)" \
   # OAuth expiry cost 12 straight briefs in Sep 2026).
   if grep -qiE "oauth.*(expired|could not be refreshed)|failed to authenticate" "$out"; then
     AUTH_FAILED=1
+  fi
+  # A CLI too old for the pinned model is the other human-only fix: #42 moved
+  # to claude-opus-5-5 on a host CLI that rejected it, and 7 briefs
+  # (2026-10-02..10-08) died behind a generic step alert. The fix is
+  # `claude update`, not /login.
+  if grep -qiE "does not support this model|or newer is required" "$out"; then
+    CLI_OUTDATED=1
   fi
   rm -f "$out"
   return "$rc"
@@ -201,6 +209,8 @@ if [ -n "$FAILED_STEP" ]; then
   MSG="$(date +%F): pipeline FAILED at step '$FAILED_STEP' (log: $LOG)"
   [ -n "$AUTH_FAILED" ] && \
     MSG="$(date +%F): claude CLI auth EXPIRED — ssh to the pipeline host and run 'claude' to /login, or every brief is lost until then"
+  [ -n "$CLI_OUTDATED" ] && \
+    MSG="$(date +%F): claude CLI too OLD for the configured model — ssh to the pipeline host and run 'claude update', or every brief is lost until then"
   alert "$MSG"
 elif [ "$PREV_OK" = "False" ]; then
   alert "$(date +%F): pipeline recovered — all steps green"

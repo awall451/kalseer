@@ -83,3 +83,64 @@ def test_prompt_still_leads_with_the_data_dir(tmp_path):
     argv = run_claude_step(tmp_path, "/srv/elsewhere/kalseer-data")
     prompt = argv[argv.index("-p") + 1]
     assert prompt.startswith("Data directory: /srv/elsewhere/kalseer-data\n")
+
+
+# The 2026-10-02..10-08 outage: #42 pinned claude-opus-5-5, the host CLI was
+# too old for it, and every judgment run died on "API Error: 400 Claude Code
+# 2.1.274 does not support this model; version 2.1.280 or newer is required".
+# Seven briefs lost behind a generic "FAILED at step 'claude'" alert. The fix
+# is `claude update`, not /login — the alert must say which.
+CLI_OUTDATED_OUTPUT = (
+    "API Error: 400 Claude Code 2.1.274 does not support this model; "
+    "version 2.1.280 or newer is required. Run 'claude update', or update "
+    "the Claude desktop app, then try again.")
+
+
+def run_claude_step_flags(tmp_path, claude_body: str) -> dict:
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "claude"
+    stub.write_text("#!/usr/bin/env bash\n" + claude_body + "\n")
+    stub.chmod(0o755)
+    script = ('DATA_DIR=/srv/kalseer-data\nAUTH_FAILED=""\nCLI_OUTDATED=""\n'
+              + extract_claude_step() + "\nclaude_step\n"
+              'echo "AUTH_FAILED=$AUTH_FAILED CLI_OUTDATED=$CLI_OUTDATED"\n')
+    env = dict(os.environ, PATH=f"{stub_bin}:{os.environ['PATH']}")
+    r = subprocess.run(["bash", "-c", script], cwd=REPO, env=env,
+                       capture_output=True, text=True, timeout=30)
+    last = r.stdout.strip().splitlines()[-1]
+    return dict(kv.split("=", 1) for kv in last.split(" "))
+
+
+def test_claude_step_names_an_outdated_cli(tmp_path):
+    flags = run_claude_step_flags(
+        tmp_path, f"echo {CLI_OUTDATED_OUTPUT!r} >&2; exit 1")
+    assert flags == {"AUTH_FAILED": "", "CLI_OUTDATED": "1"}
+
+
+def test_unknown_model_warning_alone_is_not_outdated(tmp_path):
+    # A CLI that merely lacks catalog metadata for the model prints this
+    # warning but still runs; that must not cry "update" on a healthy run.
+    flags = run_claude_step_flags(
+        tmp_path,
+        "echo 'model isn'\"'\"'t described by this version'\"'\"'s model "
+        "catalog; update Claude Code' >&2; echo ok")
+    assert flags["CLI_OUTDATED"] == ""
+
+
+def extract_alert_block() -> str:
+    text = DAILY.read_text()
+    start = text.index('if [ -n "$FAILED_STEP" ]; then\n  MSG=')
+    end = text.index("\nfi\n", start)
+    return text[start:end + 4]
+
+
+def test_outdated_cli_alert_says_claude_update():
+    script = ('FAILED_STEP=claude\nAUTH_FAILED=""\nCLI_OUTDATED=1\n'
+              'LOG=/x/daily.log\nPREV_OK=True\n'
+              'alert() { echo "ALERT: $1"; }\n' + extract_alert_block())
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                       timeout=30)
+    assert "claude update" in r.stdout, r.stdout + r.stderr
+    assert "/login" not in r.stdout  # the wrong fix costs another day
+    assert "brief" in r.stdout       # ...and what it costs to ignore

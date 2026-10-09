@@ -43,6 +43,13 @@ cat "$OUT"
 MSG="$(date +%F): claude CLI auth probe FAILED this evening — ssh to the \
 pipeline host and run 'claude' to /login tonight, or tomorrow's 08:00 brief \
 is lost. Tail: $(tail -c 200 "$OUT" | tr '\n' ' ')"
+# A CLI too old for the pinned model fails this probe too (2026-10-02..10-08,
+# 7 briefs) — and /login would not fix it; say what will.
+if grep -qiE "does not support this model|or newer is required" "$OUT"; then
+  MSG="$(date +%F): claude CLI too OLD for the configured model — ssh to the \
+pipeline host and run 'claude update' tonight, or tomorrow's 08:00 brief is \
+lost. Tail: $(tail -c 200 "$OUT" | tr '\n' ' ')"
+fi
 [ -n "${KALSEER_ALERT_CMD:-}" ] && $KALSEER_ALERT_CMD "$MSG" || true
 [ -n "${KALSEER_ALERT_URL:-}" ] && \
   curl -sf --max-time 15 -H "Title: kalseer" -d "$MSG" "$KALSEER_ALERT_URL" \

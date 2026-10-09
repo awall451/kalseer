@@ -73,3 +73,16 @@ def test_no_network_is_not_an_auth_verdict(tmp_path):
     r, alerts = run_probe(tmp_path, 'echo ok', network_up=False)
     assert r.returncode == 0, r.stdout + r.stderr
     assert alerts == ""
+
+
+def test_outdated_cli_alerts_with_update_not_login(tmp_path):
+    # 2026-10-02..10-08: the host CLI was too old for the pinned model
+    # (#42) — 7 briefs lost. Not a credential problem: /login fixes nothing.
+    r, alerts = run_probe(
+        tmp_path,
+        "echo \"API Error: 400 Claude Code 2.1.274 does not support this "
+        "model; version 2.1.280 or newer is required.\" >&2; exit 1")
+    assert r.returncode == 1
+    advice = alerts.split("Tail:")[0]  # the CLI's own words don't count
+    assert "claude update" in advice, alerts
+    assert "/login" not in advice
