@@ -90,8 +90,11 @@ claude_step() {
   # normal run finishes in ~8 min; the headroom absorbs upstream web-tool
   # outages, which have cost 10+ min in a single run. Keep this below the
   # unit's TimeoutStartSec.
-  local out rc
+  local out rc gap
   out="$(mktemp)"
+  # A cold-starting session must hear that it is resuming after dead runs,
+  # or the scoring owed for the gap days is silently skipped (gap.py).
+  gap="$(python3 kalshi/gap.py "$DATA_DIR" 2>/dev/null)"
   # The repo allowlist's Edit(data/**) only matches the default ./data layout;
   # a deployed KALSEER_DATA_DIR lives outside the checkout, so the judgment
   # step could never Edit its journal and every watchlist refresh was a
@@ -100,7 +103,9 @@ claude_step() {
   # $DATA_DIR brings the leading slash). Edit rules cover all file-editing
   # tools; a Write(path) rule is never matched and only draws a harness
   # warning into the log (hazard 1f).
-  timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "Data directory: $DATA_DIR
+  local head="Data directory: $DATA_DIR"
+  [ -n "$gap" ] && head+=$'\n'"$gap"
+  timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "$head
 $(cat bin/daily-prompt.md)" \
     --permission-mode default \
     --allowedTools "Read(/$DATA_DIR/**)" "Edit(/$DATA_DIR/**)" 2>&1 | tee "$out"
