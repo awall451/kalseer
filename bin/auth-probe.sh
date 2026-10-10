@@ -50,8 +50,21 @@ if grep -qiE "does not support this model|or newer is required" "$OUT"; then
 pipeline host and run 'claude update' tonight, or tomorrow's 08:00 brief is \
 lost. Tail: $(tail -c 200 "$OUT" | tr '\n' ' ')"
 fi
-[ -n "${KALSEER_ALERT_CMD:-}" ] && $KALSEER_ALERT_CMD "$MSG" || true
-[ -n "${KALSEER_ALERT_URL:-}" ] && \
-  curl -sf --max-time 15 -H "Title: kalseer" -d "$MSG" "$KALSEER_ALERT_URL" \
-    >/dev/null || true
+# Log the delivery outcome (as daily.sh's alert() does): gap #3 left no
+# record of whether any alert went anywhere. Never log the URL (a secret).
+SENT=""
+if [ -n "${KALSEER_ALERT_CMD:-}" ]; then
+  if $KALSEER_ALERT_CMD "$MSG"; then SENT+=" cmd"
+  else echo "auth-probe: alert: KALSEER_ALERT_CMD failed"; fi
+fi
+if [ -n "${KALSEER_ALERT_URL:-}" ]; then
+  if curl -sf --max-time 15 -H "Title: kalseer" -d "$MSG" \
+       "$KALSEER_ALERT_URL" >/dev/null; then SENT+=" url"
+  else echo "auth-probe: alert: POST to KALSEER_ALERT_URL failed"; fi
+fi
+if [ -n "$SENT" ]; then
+  echo "auth-probe: alert: sent via${SENT}"
+elif [ -z "${KALSEER_ALERT_CMD:-}${KALSEER_ALERT_URL:-}" ]; then
+  echo "auth-probe: alert: NOT SENT (set KALSEER_ALERT_URL or KALSEER_ALERT_CMD)"
+fi
 exit 1
