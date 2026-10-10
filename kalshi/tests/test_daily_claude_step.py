@@ -144,3 +144,48 @@ def test_outdated_cli_alert_says_claude_update():
     assert "claude update" in r.stdout, r.stdout + r.stderr
     assert "/login" not in r.stdout  # the wrong fix costs another day
     assert "brief" in r.stdout       # ...and what it costs to ignore
+
+
+# Gap #3 (2026-10-02..10-08): seven FAILED runs, and afterwards nobody could
+# tell whether any alert had gone out. alert() discarded every outcome: an
+# unset KALSEER_ALERT_URL/CMD, a failing curl, and a delivered page all
+# logged nothing. Each run log must now say which of those happened.
+def extract_alert_fn() -> str:
+    text = DAILY.read_text()
+    start = text.index("alert() {")
+    end = text.index("\n}", start)
+    return text[start:end + 2]
+
+
+def run_alert(env_extra: dict) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("KALSEER_ALERT_URL", "KALSEER_ALERT_CMD")}
+    env.update(env_extra)
+    script = extract_alert_fn() + '\nalert "2026-10-05: pipeline FAILED"\n'
+    return subprocess.run(["bash", "-c", script], env=env,
+                          capture_output=True, text=True, timeout=30)
+
+
+def test_alert_logs_when_nothing_is_configured():
+    r = run_alert({})
+    assert r.returncode == 0
+    assert "NOT SENT" in r.stdout
+    assert "KALSEER_ALERT_URL" in r.stdout  # name the knob to turn
+    assert "pipeline FAILED" in r.stdout    # the lost message stays in the log
+
+
+def test_alert_logs_successful_delivery():
+    r = run_alert({"KALSEER_ALERT_CMD": "true"})
+    assert r.returncode == 0
+    assert "--- alert: sent" in r.stdout
+    assert "NOT SENT" not in r.stdout
+
+
+def test_alert_logs_failed_delivery_without_failing():
+    r = run_alert({"KALSEER_ALERT_CMD": "false",
+                   "KALSEER_ALERT_URL": "http://127.0.0.1:9/no-listener"})
+    assert r.returncode == 0              # still best-effort
+    assert "KALSEER_ALERT_CMD failed" in r.stdout
+    assert "KALSEER_ALERT_URL failed" in r.stdout
+    assert "127.0.0.1" not in r.stdout    # the topic URL is a secret
+    assert "--- alert: sent" not in r.stdout

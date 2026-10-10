@@ -121,3 +121,40 @@ def test_daily_prompt_unchanged_without_a_gap(tmp_path):
     prompt = run_claude_step_prompt(tmp_path, "/srv/no-such-kalseer-data")
     assert prompt.startswith("Data directory: /srv/no-such-kalseer-data\n"
                              "# Kalshi daily judgment step")
+
+
+# Gap #3 ran seven days, and nobody could say whether a single FAILED alert
+# had been sent: daily.sh's alert() fails silently when neither
+# KALSEER_ALERT_URL nor KALSEER_ALERT_CMD is set. When the gap notice fires,
+# it must also say if this host can page anyone, so the brief puts that in
+# front of the human.
+def test_gap_notice_flags_unconfigured_alerting(tmp_path):
+    note = gap.notice(briefs(tmp_path, "2026-10-01"), "2026-10-09",
+                      alerting=False)
+    assert "KALSEER_ALERT_URL" in note
+    assert "operator" in note.lower()  # the brief must surface it to the human
+
+
+def test_gap_notice_quiet_about_alerting_when_configured(tmp_path):
+    note = gap.notice(briefs(tmp_path, "2026-10-01"), "2026-10-09",
+                      alerting=True)
+    assert "PIPELINE GAP" in note
+    assert "KALSEER_ALERT_URL" not in note
+
+
+def test_cli_reads_alerting_config_from_env(tmp_path):
+    briefs(tmp_path, "2026-10-01")
+    base = {k: v for k, v in os.environ.items()
+            if k not in ("KALSEER_ALERT_URL", "KALSEER_ALERT_CMD")}
+    cmd = [sys.executable, str(REPO / "kalshi" / "gap.py"), str(tmp_path),
+           "--today", "2026-10-09"]
+    bare = subprocess.run(cmd, env=base, capture_output=True, text=True)
+    assert "KALSEER_ALERT_URL" in bare.stdout
+    wired = subprocess.run(cmd, env=dict(base, KALSEER_ALERT_CMD="notify"),
+                           capture_output=True, text=True)
+    assert "PIPELINE GAP" in wired.stdout
+    assert "KALSEER_ALERT_URL" not in wired.stdout
+    # An empty value counts as unset, same as daily.sh's ${VAR:-} tests.
+    empty = subprocess.run(cmd, env=dict(base, KALSEER_ALERT_URL=""),
+                           capture_output=True, text=True)
+    assert "KALSEER_ALERT_URL" in empty.stdout

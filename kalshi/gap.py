@@ -27,8 +27,16 @@ def last_brief_before(data: pathlib.Path, today: datetime.date):
     return max(days, default=None)
 
 
-def notice(data, today: str) -> str:
-    """The gap notice, or "" when yesterday has a brief (or none ever did)."""
+def alerting_configured(env=os.environ) -> bool:
+    # Same test as daily.sh's alert(): an empty value counts as unset.
+    return bool(env.get("KALSEER_ALERT_URL") or env.get("KALSEER_ALERT_CMD"))
+
+
+def notice(data, today: str, alerting: bool = True) -> str:
+    """The gap notice, or "" when yesterday has a brief (or none ever did).
+
+    alerting=False adds that this host pages nobody on a failed run, so the
+    brief tells the human why the gap went unnoticed."""
     today = datetime.date.fromisoformat(today)
     last = last_brief_before(pathlib.Path(data), today)
     if last is None or (today - last).days <= 1:
@@ -48,7 +56,10 @@ def notice(data, today: str) -> str:
         "gap-day AAA prints are in aaa/prints.jsonl. Predictions that were "
         "never frozen because their run died are unscorable — say so, never "
         "reconstruct them. Name the gap and the catch-up in the brief "
-        "narrative.")
+        "narrative." + ("" if alerting else
+        " ALERTING IS OFF: neither KALSEER_ALERT_URL nor KALSEER_ALERT_CMD "
+        "is set for this pipeline, so the failed runs paged nobody. Put that "
+        "in the brief's operator items: the human must configure one."))
 
 
 def main(argv: list[str]) -> int:
@@ -59,7 +70,7 @@ def main(argv: list[str]) -> int:
         argv = argv[:i] + argv[i + 2:]
     data = argv[0] if argv else os.environ.get(
         "KALSEER_DATA_DIR", pathlib.Path(__file__).parents[1] / "data")
-    note = notice(data, today)
+    note = notice(data, today, alerting=alerting_configured())
     if note:
         print(note)
     return 0

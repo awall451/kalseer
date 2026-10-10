@@ -66,11 +66,23 @@ AUTH_FAILED=""
 CLI_OUTDATED=""
 
 alert() { # alert <message> — best-effort push; never fails the pipeline
-  local msg="$1"
-  [ -n "${KALSEER_ALERT_CMD:-}" ] && $KALSEER_ALERT_CMD "$msg" || true
-  [ -n "${KALSEER_ALERT_URL:-}" ] && \
-    curl -sf --max-time 15 -H "Title: kalseer" -d "$msg" "$KALSEER_ALERT_URL" \
-      >/dev/null || true
+  # Log the delivery outcome: gap #3 (2026-10-02..10-08) left no record of
+  # whether seven FAILED alerts went anywhere. Never log the URL (a secret).
+  local msg="$1" sent=""
+  if [ -n "${KALSEER_ALERT_CMD:-}" ]; then
+    if $KALSEER_ALERT_CMD "$msg"; then sent+=" cmd"
+    else echo "--- alert: KALSEER_ALERT_CMD failed"; fi
+  fi
+  if [ -n "${KALSEER_ALERT_URL:-}" ]; then
+    if curl -sf --max-time 15 -H "Title: kalseer" -d "$msg" \
+         "$KALSEER_ALERT_URL" >/dev/null; then sent+=" url"
+    else echo "--- alert: POST to KALSEER_ALERT_URL failed"; fi
+  fi
+  if [ -n "$sent" ]; then
+    echo "--- alert: sent via${sent}"
+  elif [ -z "${KALSEER_ALERT_CMD:-}${KALSEER_ALERT_URL:-}" ]; then
+    echo "--- alert: NOT SENT (set KALSEER_ALERT_URL or KALSEER_ALERT_CMD): $msg"
+  fi
   return 0
 }
 
