@@ -62,6 +62,9 @@ approval-blocked (proven live 9/27).
    For NWS climate reports (rain scoring), skip the two-step products dance:
    `python3 kalshi/wx.py cli LOC` (LOC e.g. DCA, NYC) prints the newest CLI
    report verbatim; `--list` shows archived versions, `--id UUID` one of them.
+   NWS drops reports after ~7 days, but the pipeline's `wx` step keeps every
+   version it has seen in `$DATA/wx/cli/<LOC>/<id>.json` (verbatim
+   productText); read those for older days.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its

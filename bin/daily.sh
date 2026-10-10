@@ -132,6 +132,9 @@ $(cat bin/daily-prompt.md)" \
 # raw page archived first, so a day of the gas/diesel series can never be
 # lost to a failed judgment step again (gap #2 cost 12 runs in Sep 2026).
 run_step aaa     python3 kalshi/aaa.py
+# Same for the rain/high-temp settlement source: NWS keeps ~7 days of CLI
+# reports, and gap #3 (Oct 2026) outlived the 10/1 finals.
+run_step wx      python3 kalshi/wx.py archive
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
