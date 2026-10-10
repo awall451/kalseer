@@ -86,3 +86,47 @@ def test_outdated_cli_alerts_with_update_not_login(tmp_path):
     advice = alerts.split("Tail:")[0]  # the CLI's own words don't count
     assert "claude update" in advice, alerts
     assert "/login" not in advice
+
+
+# Gap #3 (2026-10-02..10-08): afterwards nobody could tell whether any alert
+# had been sent, because every delivery outcome was silent. The probe's
+# journal output must say whether its alert reached anyone.
+def run_failing_probe(tmp_path, alert_env: dict):
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir()
+    claude = stub_bin / "claude"
+    claude.write_text("#!/usr/bin/env bash\necho 'failed to authenticate'\nexit 1\n")
+    claude.chmod(0o755)
+    net_probe = tmp_path / "net-up"
+    net_probe.write_text("ok\n")
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("KALSEER_ALERT_URL", "KALSEER_ALERT_CMD")}
+    env.update(PATH=f"{stub_bin}:{os.environ['PATH']}",
+               KALSEER_NET_PROBE_URL=net_probe.as_uri(),
+               KALSEER_AUTHPROBE_NET_WAIT="0", **alert_env)
+    return subprocess.run(["bash", str(SCRIPT)], env=env, cwd=REPO,
+                          capture_output=True, text=True, timeout=30)
+
+
+def test_probe_logs_unconfigured_alerting(tmp_path):
+    r = run_failing_probe(tmp_path, {})
+    assert r.returncode == 1
+    assert "NOT SENT" in r.stdout
+    assert "KALSEER_ALERT_URL" in r.stdout
+
+
+def test_probe_logs_delivered_alert(tmp_path):
+    r = run_failing_probe(tmp_path, {"KALSEER_ALERT_CMD": "true"})
+    assert r.returncode == 1
+    assert "alert: sent" in r.stdout
+
+
+def test_probe_logs_failed_delivery_without_leaking_url(tmp_path):
+    r = run_failing_probe(tmp_path, {
+        "KALSEER_ALERT_CMD": "false",
+        "KALSEER_ALERT_URL": "http://127.0.0.1:9/no-listener"})
+    assert r.returncode == 1
+    assert "KALSEER_ALERT_CMD failed" in r.stdout
+    assert "KALSEER_ALERT_URL failed" in r.stdout
+    assert "127.0.0.1" not in r.stdout
+    assert "alert: sent" not in r.stdout
