@@ -45,7 +45,10 @@ approval-blocked (proven live 9/27).
      the last line of `$DATA/aaa/prints.jsonl` for today's date
      has every retention cell as the page's exact strings (raw HTML archived
      next to it under `aaa/raw/`) — reconcile against it, and backfill any
-     gap day from the journal instead of the page's aging retention cells
+     gap day from the journal instead of the page's aging retention cells.
+     Rows are dated by the page's own "Price as of" stamp (`as_of`), not
+     the clock: a catch-up run before AAA's overnight update journals
+     yesterday's print, and today's row won't exist yet
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math

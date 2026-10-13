@@ -37,6 +37,9 @@ RAW_DIR = AAA_DIR / "raw"
 JOURNAL = AAA_DIR / "prints.jsonl"
 
 PRICE_RE = re.compile(r"^\$\d+\.\d+$")
+# "Price as of 10/12/26" (one live copy splits it with "<br />"). AAA updates
+# overnight, so a catch-up run right after boot still sees yesterday's print.
+AS_OF_RE = re.compile(r"Price as of\s*(?:<br\s*/?>)?\s*(\d{1,2}/\d{1,2}/\d{2})", re.I)
 
 # Header cells -> journal keys; row labels -> journal keys. Matched by
 # substring so cosmetic wording changes ("Current Avg." vs "Current Average")
@@ -120,6 +123,18 @@ def parse(html: str) -> dict:
     raise ParseError("no fully priced national-average table found")
 
 
+def as_of(html: str):
+    """ISO date of the page's "Price as of" stamp, or None if absent."""
+    m = AS_OF_RE.search(html)
+    if not m:
+        return None
+    return dt.datetime.strptime(m.group(1), "%m/%d/%y").date().isoformat()
+
+
+def _today() -> str:
+    return dt.date.today().isoformat()
+
+
 def fetch(tries: int = 3) -> str:
     req = urllib.request.Request(URL, headers={"User-Agent": "paper-research/0.1"})
     for attempt in range(tries):
@@ -154,11 +169,22 @@ def main(argv) -> int:
         print(f"aaa: fetch failed: {e}", file=sys.stderr)
         return 1
 
+    # The row's date is the page's own "Price as of" day, not the clock: a
+    # catch-up run before AAA's overnight update fetches yesterday's print.
+    today = _today()
+    stamp = AS_OF_RE.search(html)
+    day = as_of(html) or today
+    if stamp is None:
+        print(f"aaa: no 'Price as of' stamp on the page; dating the print "
+              f"{today} by the clock", file=sys.stderr)
+    elif day != today:
+        print(f"aaa: page still shows the {stamp.group(1)} print (fetched "
+              f"{today}) — journaled as {day}, not today's print")
+
     # Raw first: once the fetch succeeded, today's print is safe on disk no
     # matter what the parser thinks of the page.
-    today = dt.date.today().isoformat()
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    raw_name = f"aaa-{today}.html.gz"
+    raw_name = f"aaa-{day}.html.gz"
     (RAW_DIR / raw_name).write_bytes(gzip.compress(html.encode()))
 
     try:
@@ -168,7 +194,8 @@ def main(argv) -> int:
               file=sys.stderr)
         return 2
 
-    rec = {"date": today,
+    rec = {"date": day,
+           "as_of": stamp.group(1) if stamp else None,
            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
            "source": URL,
            "raw": f"aaa/raw/{raw_name}",
