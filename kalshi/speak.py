@@ -92,7 +92,16 @@ def main():
     text = f"Kalseer morning brief, {date}.\n\n" + body
     out = paper.DATA / "public" / f"brief-{date}.mp3"
     out.parent.mkdir(parents=True, exist_ok=True)
-    asyncio.run(edge_tts.Communicate(text, VOICE).save(str(out)))
+    # edge-tts creates its output file before the network can fail, and the
+    # dashboard shows the speaker button whenever the mp3 exists — so
+    # synthesize to a temp file and rename only a finished take into place.
+    # A failure leaves no 0-byte mp3 and keeps any earlier good one.
+    tmp = out.with_name(out.name + ".part")
+    try:
+        asyncio.run(edge_tts.Communicate(text, VOICE).save(str(tmp)))
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
     print(f"spoke {len(text)} chars -> {out} ({out.stat().st_size // 1024} KB, {VOICE})")
 
 
