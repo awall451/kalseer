@@ -158,3 +158,50 @@ def test_cli_reads_alerting_config_from_env(tmp_path):
     empty = subprocess.run(cmd, env=dict(base, KALSEER_ALERT_URL=""),
                            capture_output=True, text=True)
     assert "KALSEER_ALERT_URL" in empty.stdout
+
+
+# Gap #4 (2026-10-11..10-12) was a host-down gap: no daily log at all, so
+# NOTHING ran — no AAA capture, no wx archive. The notice still said "the
+# AAA capture still ran ... gap-day AAA prints are in aaa/prints.jsonl",
+# sending the catch-up run to a journal with no rows for those days. A no-run
+# day's AAA print survives only in the page's retention cells, which age out.
+def logs(tmp_path, *days):
+    (tmp_path / "logs").mkdir(exist_ok=True)
+    for d in days:
+        (tmp_path / "logs" / f"daily-{d}.log").write_text("=== daily run\n")
+    return tmp_path
+
+
+def test_host_down_days_are_named_and_sent_to_the_retention_cells(tmp_path):
+    briefs(tmp_path, "2026-10-10")
+    logs(tmp_path, "2026-10-10", "2026-10-13")
+    note = gap.notice(tmp_path, "2026-10-13")
+    assert "2026-10-11..2026-10-12" in note
+    assert "no pipeline run started" in note
+    assert "2026-10-11, 2026-10-12" in note
+    assert "AAA capture still ran" not in note
+    assert "retention cells" in note       # where the lost prints still are
+    assert "yesterday" in note             # ...and the cell that ages out first
+
+
+def test_failed_run_days_keep_the_journal_pointer(tmp_path):
+    # gap #3 shape: every gap day has a log (the runs started, claude died)
+    briefs(tmp_path, "2026-10-01")
+    logs(tmp_path, *[f"2026-10-0{d}" for d in range(2, 10)])
+    note = gap.notice(tmp_path, "2026-10-09")
+    assert "AAA capture still ran" in note
+    assert "no pipeline run started" not in note
+
+
+def test_mixed_gap_lists_only_the_no_run_days(tmp_path):
+    briefs(tmp_path, "2026-10-01")
+    logs(tmp_path, "2026-10-02", "2026-10-04")
+    note = gap.notice(tmp_path, "2026-10-05")
+    assert "no pipeline run started at all on 2026-10-03" in note
+    assert "2026-10-02," not in note and "2026-10-04," not in note
+
+
+def test_no_logs_dir_claims_nothing_about_runs(tmp_path):
+    # an install without the logs dir can't tell; don't guess either way
+    note = gap.notice(briefs(tmp_path, "2026-10-01"), "2026-10-09")
+    assert "no pipeline run started" not in note

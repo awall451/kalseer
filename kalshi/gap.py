@@ -27,6 +27,19 @@ def last_brief_before(data: pathlib.Path, today: datetime.date):
     return max(days, default=None)
 
 
+def no_run_days(data: pathlib.Path, first: datetime.date, end: datetime.date):
+    """Gap days with no daily log: the pipeline never started (host down).
+
+    Gap #4 (2026-10-11..10-12) was one. [] when there's no logs dir, since an
+    install without one can't tell a dead host from a dead judgment step."""
+    logs = data / "logs"
+    if not logs.is_dir():
+        return []
+    days = [first + datetime.timedelta(days=i) for i in range((end - first).days + 1)]
+    return [d.isoformat() for d in days
+            if not (logs / f"daily-{d.isoformat()}.log").exists()]
+
+
 def alerting_configured(env=os.environ) -> bool:
     # Same test as daily.sh's alert(): an empty value counts as unset.
     return bool(env.get("KALSEER_ALERT_URL") or env.get("KALSEER_ALERT_CMD"))
@@ -45,15 +58,30 @@ def notice(data, today: str, alerting: bool = True) -> str:
     n = (end - first).days + 1
     span = first.isoformat() if n == 1 else f"{first}..{end}"
     runs = "1 daily run" if n == 1 else f"{n} daily runs"
+    dead = no_run_days(pathlib.Path(data), first, end)
+    if dead:
+        ran = (f" (no pipeline run started at all on {', '.join(dead)} — host "
+               "down or the timer never fired — so those days have no AAA "
+               "capture, wx archive, or settle)")
+        aaa = ("a no-run day's AAA print is NOT in aaa/prints.jsonl: it "
+               "survives only in the page's retention cells, so read it from "
+               "the `yesterday`/`week_ago` cells of the first post-gap row "
+               "(count from the raw page's 'Price as of' date, not the row's "
+               "fetch day); a day no cell covers is lost from AAA — take a "
+               "settled market's `expiration_value` instead; other gap-day "
+               "prints are in aaa/prints.jsonl.")
+    else:
+        ran = " (settle, scan, and the AAA capture still ran)"
+        aaa = "gap-day AAA prints are in aaa/prints.jsonl."
     return (
         f"PIPELINE GAP: the newest brief before today is brief-{last}.json — "
-        f"{runs} ({span}) produced no brief (settle, scan, and the AAA "
-        "capture still ran). Before today's research, catch up: score every "
+        f"{runs} ({span}) produced no brief{ran}. Before today's research, "
+        "catch up: score every "
         "pre-registration and watchlist prediction that came due in the gap. "
         "Pull time-limited sources first — NWS CLI archives age out "
         "(`python3 kalshi/wx.py cli LOC --list`); market finals stay readable "
         "(`python3 kalshi/kalshi.py market TICKER`, `series SERIES settled`); "
-        "gap-day AAA prints are in aaa/prints.jsonl. Predictions that were "
+        f"{aaa} Predictions that were "
         "never frozen because their run died are unscorable — say so, never "
         "reconstruct them. Name the gap and the catch-up in the brief "
         "narrative." + ("" if alerting else
