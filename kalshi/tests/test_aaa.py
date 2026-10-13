@@ -139,3 +139,44 @@ def test_reparse_prints_json_without_touching_the_journal(data_dir, tmp_path, ca
     out = json.loads(capsys.readouterr().out)
     assert out["current"]["regular"] == "$4.4744"
     assert not (data_dir / "aaa" / "prints.jsonl").exists()
+
+
+# The page names the day its "current" row belongs to ("Price as of
+# 10/12/26"). AAA updates overnight, so a Persistent= catch-up run that fires
+# right after boot (00:08 on 2026-10-13) fetched the 10/12 print — and the
+# journal stamped it 2026-10-13, a day off for every RW/MOM score and for the
+# KXDIESELW Monday print. The journal date must come from the page.
+def _dated(page, stamp):
+    return page.replace("<h2>", f"<p>Price as of {stamp}</p>\n<h2>", 1)
+
+
+def test_as_of_reads_the_page_date():
+    assert aaa.as_of(_dated(PAGE, "10/12/26")) == "2026-10-12"
+    # the live page also carries a "<br />"-split copy
+    assert aaa.as_of("<span>Price as of<br />10/12/26</span>") == "2026-10-12"
+
+
+def test_as_of_is_none_without_a_stamp():
+    assert aaa.as_of(PAGE) is None
+
+
+def test_main_dates_the_row_by_the_page_not_the_clock(data_dir, monkeypatch, capsys):
+    monkeypatch.setattr(aaa, "fetch", lambda: _dated(PAGE, "10/12/26"))
+    monkeypatch.setattr(aaa, "_today", lambda: "2026-10-13")
+    assert aaa.main([]) == 0
+    rec = json.loads((data_dir / "aaa" / "prints.jsonl").read_text())
+    assert rec["date"] == "2026-10-12"
+    assert rec["as_of"] == "10/12/26"
+    assert rec["raw"] == "aaa/raw/aaa-2026-10-12.html.gz"
+    # say so in the run log: the judgment step must not read it as today's
+    assert "not today's" in capsys.readouterr().out
+
+
+def test_main_falls_back_to_the_clock_without_a_stamp(data_dir, monkeypatch, capsys):
+    monkeypatch.setattr(aaa, "fetch", lambda: PAGE)
+    monkeypatch.setattr(aaa, "_today", lambda: "2026-10-13")
+    assert aaa.main([]) == 0
+    rec = json.loads((data_dir / "aaa" / "prints.jsonl").read_text())
+    assert rec["date"] == "2026-10-13"
+    assert rec["as_of"] is None
+    assert "no 'Price as of' stamp" in capsys.readouterr().err
