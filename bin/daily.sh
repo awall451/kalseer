@@ -16,6 +16,10 @@
 #                       body works). Also pings once on recovery.
 #   KALSEER_ALERT_CMD   if set, run `$KALSEER_ALERT_CMD "<message>"` instead
 #                       of / in addition to the URL POST.
+#   KALSEER_HEARTBEAT_URL  if set, GET this URL after every green run — a
+#                       dead-man's switch (healthchecks.io, Uptime Kuma push,
+#                       Cronitor…) that pages when pings STOP, which is the
+#                       only way to hear about a run that never started.
 #   KALSEER_NO_SELF_UPDATE  if set, skip the fast-forward to origin at start
 #                       (pin the checkout while debugging a bad merge).
 set -u
@@ -82,6 +86,20 @@ alert() { # alert <message> — best-effort push; never fails the pipeline
     echo "--- alert: sent via${sent}"
   elif [ -z "${KALSEER_ALERT_CMD:-}${KALSEER_ALERT_URL:-}" ]; then
     echo "--- alert: NOT SENT (set KALSEER_ALERT_URL or KALSEER_ALERT_CMD): $msg"
+  fi
+  return 0
+}
+
+heartbeat() { # ping the dead-man's switch; never fails the pipeline
+  # alert() can only fire from a run that started. Gap #4 (2026-10-11..10-12,
+  # host down) produced no run, no log, and no alert; an external check that
+  # expects this ping every day pages on its absence. Never log the URL.
+  if [ -z "${KALSEER_HEARTBEAT_URL:-}" ]; then
+    echo "--- heartbeat: off (set KALSEER_HEARTBEAT_URL so a run that never starts still pages someone)"
+  elif curl -sf --max-time 15 --retry 2 -o /dev/null "$KALSEER_HEARTBEAT_URL"; then
+    echo "--- heartbeat: sent"
+  else
+    echo "--- heartbeat: ping failed"
   fi
   return 0
 }
@@ -235,6 +253,8 @@ if [ -n "$FAILED_STEP" ]; then
 elif [ "$PREV_OK" = "False" ]; then
   alert "$(date +%F): pipeline recovered — all steps green"
 fi
+# Green runs only: a withheld ping is what makes the external check page.
+[ -z "$FAILED_STEP" ] && heartbeat
 
 echo "=== done $(date -Is) failed_step='${FAILED_STEP}' ==="
 [ -z "$FAILED_STEP" ]

@@ -189,3 +189,68 @@ def test_alert_logs_failed_delivery_without_failing():
     assert "KALSEER_ALERT_URL failed" in r.stdout
     assert "127.0.0.1" not in r.stdout    # the topic URL is a secret
     assert "--- alert: sent" not in r.stdout
+
+
+# Gap #4 (2026-10-11..10-12): the host was down, so daily.sh never started
+# and alert() never ran — no on-host alert can page for a run that doesn't
+# happen. A dead-man's switch can: daily.sh pings KALSEER_HEARTBEAT_URL after
+# every green run, and the external service (healthchecks.io, Uptime Kuma
+# push, Cronitor…) pages when the pings stop.
+def extract_heartbeat_fn() -> str:
+    text = DAILY.read_text()
+    start = text.index("heartbeat() {")
+    end = text.index("\n}", start)
+    return text[start:end + 2]
+
+
+def run_heartbeat(env_extra: dict) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k != "KALSEER_HEARTBEAT_URL"}
+    env.update(env_extra)
+    return subprocess.run(["bash", "-c", extract_heartbeat_fn() + "\nheartbeat\n"],
+                          env=env, capture_output=True, text=True, timeout=60)
+
+
+def test_heartbeat_logs_when_not_configured():
+    r = run_heartbeat({})
+    assert r.returncode == 0
+    assert "KALSEER_HEARTBEAT_URL" in r.stdout  # name the knob to turn
+
+
+def test_heartbeat_logs_delivery():
+    r = run_heartbeat({"KALSEER_HEARTBEAT_URL": "file:///dev/null"})
+    assert r.returncode == 0
+    assert "--- heartbeat: sent" in r.stdout
+
+
+def test_heartbeat_failure_never_fails_the_pipeline():
+    r = run_heartbeat({"KALSEER_HEARTBEAT_URL": "http://127.0.0.1:9/no-listener"})
+    assert r.returncode == 0
+    assert "--- heartbeat: ping failed" in r.stdout
+    assert "127.0.0.1" not in r.stdout  # the check URL is a secret
+
+
+def extract_tail() -> str:
+    text = DAILY.read_text()
+    start = text.index('if [ -n "$FAILED_STEP" ]; then\n  MSG=')
+    end = text.index('echo "=== done', start)
+    return text[start:end]
+
+
+def run_tail(failed_step: str, prev_ok: str = "True") -> str:
+    script = (f'FAILED_STEP="{failed_step}"\nAUTH_FAILED=""\nCLI_OUTDATED=""\n'
+              f'LOG=/x/daily.log\nPREV_OK={prev_ok}\n'
+              'alert() { echo "ALERT: $1"; }\nheartbeat() { echo PING; }\n'
+              + extract_tail())
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                       timeout=30)
+    return r.stdout
+
+
+def test_green_run_pings_the_heartbeat():
+    assert "PING" in run_tail("")
+    assert "PING" in run_tail("", prev_ok="False")  # recovery is green too
+
+
+def test_failed_run_withholds_the_heartbeat():
+    # a missed ping is what makes the external service page
+    assert "PING" not in run_tail("claude")
