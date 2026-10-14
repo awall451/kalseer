@@ -202,7 +202,9 @@ def test_wiki_renders_every_page_and_records_hashes(wiki, monkeypatch):
     monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
     speak.speak_wiki()
     assert (out / "kalshi-101.mp3").read_bytes().startswith(b"ID3")
-    assert b"Kalshi 101" in (out / "kalshi-101.mp3").read_bytes()
+    # "Kalshi" is respelled for the voice (pronounce()), so the title is
+    # spoken as SPOKEN_KALSHI.
+    assert f"{speak.SPOKEN_KALSHI} 101".encode() in (out / "kalshi-101.mp3").read_bytes()
     assert (out / "glossary.mp3").exists()
     assert not (out / "missing.mp3").exists()
     assert set(json.loads((out / "index.json").read_text())) == {"kalshi-101", "glossary"}
@@ -288,3 +290,12 @@ def test_wiki_rerenders_when_the_respelling_changes(wiki, monkeypatch):
     monkeypatch.setattr(speak, "SPOKEN_NAME", "Kal-seer")
     speak.speak_wiki()
     assert b"Kal-seer" in (out / "glossary.mp3").read_bytes()
+
+
+def test_pronounce_respells_kalshi_too():
+    # Same lexicon gap: "Kalshi" also came out "Kal-shure" (2026-10-14).
+    out = speak.pronounce("Per Kalshi's help center, KALSHI fees apply.")
+    assert out == (f"Per {speak.SPOKEN_KALSHI}'s help center, "
+                   f"{speak.SPOKEN_KALSHI} fees apply.")
+    # Tickers and the Kalseer name are untouched by the Kalshi rule.
+    assert speak.pronounce("Kalseer") == speak.SPOKEN_NAME
