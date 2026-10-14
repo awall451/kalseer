@@ -21,6 +21,48 @@
     query = ''
     location.hash = `#/wiki/${s}`
   }
+
+  // Read-aloud: the pipeline publishes data/wiki/<slug>.mp3 (kalshi/speak.py
+  // --wiki). Show the player only when the page has audio. "Keep going"
+  // advances to the next page in sidebar order when one finishes — for
+  // listening through the wiki hands-free.
+  const order = manifest.flatMap((g) => g.items)
+  const KEEP_KEY = 'kalseer.wiki.keepGoing'
+  let audioUrl = $state(null)
+  let audioEl = $state(null)
+  let playNext = false
+  let keepGoing = $state(false)
+  try { keepGoing = localStorage.getItem(KEEP_KEY) === '1' } catch {}
+
+  function setKeepGoing(v) {
+    keepGoing = v
+    try { localStorage.setItem(KEEP_KEY, v ? '1' : '0') } catch {}
+  }
+
+  $effect(() => {
+    const s = slug
+    audioUrl = null
+    fetch(`./data/wiki/${s}.mp3`, { method: 'HEAD', cache: 'no-store' })
+      .then((r) => { if (r.ok && slug === s) audioUrl = `./data/wiki/${s}.mp3` })
+      .catch(() => {})
+  })
+
+  $effect(() => {
+    if (audioEl && audioUrl && playNext) {
+      playNext = false
+      audioEl.play().catch(() => {})
+    }
+  })
+
+  function ended() {
+    if (!keepGoing) return
+    const i = order.findIndex((it) => it.slug === slug)
+    if (i >= 0 && i + 1 < order.length) {
+      playNext = true
+      go(order[i + 1].slug)
+      window.scrollTo({ top: 0 })
+    }
+  }
 </script>
 
 <div class="wiki">
@@ -66,6 +108,16 @@
   </aside>
 
   <article class="prose card">
+    {#if audioUrl}
+      <div class="listen">
+        <audio bind:this={audioEl} src={audioUrl} controls preload="none" onended={ended}></audio>
+        <label class="keep muted">
+          <input type="checkbox" checked={keepGoing}
+                 onchange={(e) => setKeepGoing(e.currentTarget.checked)} />
+          Keep going to the next page
+        </label>
+      </div>
+    {/if}
     {#if html}
       {@html html}
     {:else}
@@ -149,4 +201,16 @@
   }
 
   .prose { padding: 26px 30px; max-width: 780px; min-width: 0; }
+
+  .listen {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .listen audio { height: 36px; flex: 1 1 260px; min-width: 0; }
+  .keep { font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 </style>

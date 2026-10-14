@@ -135,3 +135,127 @@ def test_speak_still_failing_after_upgrade_fails_the_step(tmp_path):
 def test_no_venv_pip_means_no_retry(tmp_path):
     rc, n, pips = run_speak_step(tmp_path, speak_fails=1, with_pip=False)
     assert rc != 0 and n == 1 and pips == []
+
+
+# --- wiki audio: speak.py --wiki renders each wiki page to public/wiki/ ---
+#
+# The in-app wiki (frontend/src/content/*.md) is reading material; the same
+# edge-tts voice reads it aloud. Pages change rarely, so a page is only
+# re-synthesized when its spoken text changes (public/wiki/index.json keeps a
+# hash per slug) — otherwise every run would commit fresh mp3s to the data
+# repo. Live {{token}} lines are left out of the audio for the same reason:
+# filling them would change the text (and the mp3) every day, and an
+# unfilled or stale number read aloud would be wrong.
+
+def test_wiki_speech_reads_admonitions_with_their_label():
+    md = '!!! warning "Never bet full Kelly"\n    Full Kelly assumes you are right.\n'
+    text = speak.wiki_to_speech(md)
+    assert "Warning: Never bet full Kelly." in text
+    assert "Full Kelly assumes you are right." in text
+    assert "!!!" not in text
+
+
+def test_wiki_speech_reads_table_rows_as_header_cell_pairs():
+    md = ("| Treatment | Consequence |\n|---|---|\n"
+          "| **Gambling income** | Losses only offset winnings. |\n")
+    text = speak.wiki_to_speech(md)
+    assert "Treatment: Gambling income. Consequence: Losses only offset winnings." in text
+    assert "|" not in text and "---" not in text
+
+
+def test_wiki_speech_speaks_formula_fences():
+    md = "```\nfee = 0.07 × contracts × price × (1 − price)\n```\n"
+    text = speak.wiki_to_speech(md)
+    assert "fee equals 0.07 times contracts times price times (1 minus price)" in text
+    assert "```" not in text
+
+
+def test_wiki_speech_drops_live_token_lines_and_toc():
+    md = ("# How it works\n\n[[_TOC_]]\n\n## Live numbers\n\n"
+          "Bankroll **{{bankroll}}** today.\n\n## Next\n\nPlain text.\n")
+    text = speak.wiki_to_speech(md)
+    assert "{{" not in text and "bankroll" not in text.lower()
+    assert "_TOC_" not in text
+    assert "live numbers" in text.lower() and "dashboard" in text.lower()
+    assert "How it works." in text and "Plain text." in text
+
+
+@pytest.fixture
+def wiki(tmp_path, monkeypatch):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "manifest.json").write_text(json.dumps([
+        {"id": "basics", "label": "Basics", "items": [
+            {"slug": "kalshi-101", "title": "Kalshi 101"},
+            {"slug": "glossary", "title": "Glossary"},
+            {"slug": "missing", "title": "Not written yet"}]}]))
+    (content / "kalshi-101.md").write_text("# Kalshi 101\n\nYes or no.\n")
+    (content / "glossary.md").write_text("# Glossary\n\nEdge: fair minus price.\n")
+    data = tmp_path / "data"
+    monkeypatch.setattr(paper, "DATA", data)
+    monkeypatch.setattr(speak, "WIKI_CONTENT", content)
+    return content, data / "public" / "wiki"
+
+
+def test_wiki_renders_every_page_and_records_hashes(wiki, monkeypatch):
+    content, out = wiki
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
+    speak.speak_wiki()
+    assert (out / "kalshi-101.mp3").read_bytes().startswith(b"ID3")
+    assert b"Kalshi 101" in (out / "kalshi-101.mp3").read_bytes()
+    assert (out / "glossary.mp3").exists()
+    assert not (out / "missing.mp3").exists()
+    assert set(json.loads((out / "index.json").read_text())) == {"kalshi-101", "glossary"}
+
+
+def test_wiki_skips_unchanged_pages(wiki, monkeypatch):
+    content, out = wiki
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
+    speak.speak_wiki()
+    (out / "glossary.mp3").write_bytes(b"ID3 untouched")
+    (content / "kalshi-101.md").write_text("# Kalshi 101\n\nYes or no. Edited.\n")
+    speak.speak_wiki()
+    assert (out / "glossary.mp3").read_bytes() == b"ID3 untouched"
+    assert b"Edited." in (out / "kalshi-101.mp3").read_bytes()
+
+
+def test_wiki_failure_keeps_old_audio_and_raises(wiki, monkeypatch):
+    content, out = wiki
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
+    speak.speak_wiki()
+    before = json.loads((out / "index.json").read_text())
+    (content / "glossary.md").write_text("# Glossary\n\nRewritten.\n")
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=True))
+    with pytest.raises(RuntimeError):
+        speak.speak_wiki()
+    assert b"Edge: fair minus price" in (out / "glossary.mp3").read_bytes()
+    # The failed page's hash is not advanced, so the next run retries it.
+    assert json.loads((out / "index.json").read_text())["glossary"] == before["glossary"]
+    assert not list(out.glob("*.part"))
+
+
+def test_speak_step_passes_its_arguments_through(tmp_path):
+    record = tmp_path / "argv"
+    speaker = tmp_path / "speaker"
+    speaker.write_text(f'#!/usr/bin/env bash\necho "$*" > "{record}"\n')
+    speaker.chmod(0o755)
+    script = f'SPEAK_PY="{speaker}"\n' + extract_speak_step() + "\nspeak_step --wiki\n"
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True,
+                       text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert record.read_text().split() == ["kalshi/speak.py", "--wiki"]
+
+
+def test_wiki_speech_joins_hard_wrapped_lines_into_one_sentence():
+    md = ('!!! danger "Not tax advice"\n'
+          "    The tax treatment of prediction-market\n"
+          "    contracts is unsettled.\n\n"
+          "- first item\n- second item\n")
+    text = speak.wiki_to_speech(md)
+    assert "prediction-market contracts is unsettled." in text
+    assert "first item.\nsecond item." in text
+
+
+def test_wiki_speech_headings_always_pause():
+    assert speak.wiki_to_speech("## Live (from today)\n\nBody.\n").startswith(
+        "Live (from today).")
