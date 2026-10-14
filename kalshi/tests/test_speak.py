@@ -259,3 +259,32 @@ def test_wiki_speech_joins_hard_wrapped_lines_into_one_sentence():
 def test_wiki_speech_headings_always_pause():
     assert speak.wiki_to_speech("## Live (from today)\n\nBody.\n").startswith(
         "Live (from today).")
+
+
+# Edge's voice reads "Kalseer" as "Kal-shure"; it's Kalshi + seer, three
+# syllables. Every spoken text goes through pronounce() on its way to the
+# voice, and the wiki hash covers the respelled text so a respelling change
+# re-renders the pages that say the name.
+
+def test_pronounce_respells_the_name():
+    assert speak.pronounce("Kalseer morning brief. KALSEER wiki.") == (
+        f"{speak.SPOKEN_NAME} morning brief. {speak.SPOKEN_NAME} wiki.")
+    assert "kalseer" not in speak.SPOKEN_NAME.lower().replace("-", "")
+
+
+def test_synth_speaks_the_respelled_name(brief, monkeypatch):
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
+    speak.main()
+    spoken = brief.read_bytes()
+    assert b"Kalseer" not in spoken
+    assert speak.SPOKEN_NAME.encode() in spoken
+
+
+def test_wiki_rerenders_when_the_respelling_changes(wiki, monkeypatch):
+    content, out = wiki
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(fail=False))
+    speak.speak_wiki()
+    (out / "glossary.mp3").write_bytes(b"ID3 old name")
+    monkeypatch.setattr(speak, "SPOKEN_NAME", "Kal-seer")
+    speak.speak_wiki()
+    assert b"Kal-seer" in (out / "glossary.mp3").read_bytes()
