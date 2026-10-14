@@ -60,8 +60,12 @@ approval-blocked (proven live 9/27).
    bid/ask strings, rules text, and `expiration_value` once settled),
    `python3 kalshi/kalshi.py event EVENT_TICKER` (every strike, one line),
    `python3 kalshi/kalshi.py series SERIES_TICKER [STATUS]` (STATUS defaults
-   to `open`; use `settled` to read finals). Prices print as the API's exact
-   strings — quote them verbatim in the watchlist.
+   to `open`; use `settled` to read finals),
+   `python3 kalshi/kalshi.py history SERIES_TICKER [N]` (the settlement
+   source's own value per settled event, newest first — e.g. KXTRUMPAPPROVE
+   gives the daily RCP approval average even though RCP refuses our fetches).
+   Prices print as the API's exact strings — quote them verbatim in the
+   watchlist.
    For NWS climate reports (rain scoring), skip the two-step products dance:
    `python3 kalshi/wx.py cli LOC` (LOC e.g. DCA, NYC) prints the newest CLI
    report verbatim; `--list` shows archived versions, `--id UUID` one of them.
