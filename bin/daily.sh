@@ -183,17 +183,19 @@ run_step publish python3 kalshi/publish.py
 # Prefer the repo venv when present — edge-tts is the one non-stdlib dep.
 SPEAK_PY="python3"
 [ -x .venv/bin/python ] && SPEAK_PY=".venv/bin/python"
-speak_step() {
+speak_step() { # speak_step [speak.py args...]
   # The Edge read-aloud endpoint periodically 403s outdated edge-tts clients
   # (2026-10-13: 7.2.8 rejected, 7.3.1 fine). On failure, upgrade edge-tts in
   # the repo venv once and retry, so a stale client heals itself.
-  "$SPEAK_PY" kalshi/speak.py && return 0
+  "$SPEAK_PY" kalshi/speak.py "$@" && return 0
   [ -x .venv/bin/pip ] || return 1
   echo "--- speak: failed; upgrading edge-tts and retrying once"
   .venv/bin/pip install -q -U edge-tts || return 1
-  "$SPEAK_PY" kalshi/speak.py
+  "$SPEAK_PY" kalshi/speak.py "$@"
 }
 run_step speak speak_step
+# Wiki pages for listening; only pages whose text changed are re-synthesized.
+run_step speak-wiki speak_step --wiki
 if [ "$DEPLOY" = "compose" ]; then
   run_step deploy docker compose up -d
 fi
