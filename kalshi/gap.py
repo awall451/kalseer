@@ -45,11 +45,17 @@ def alerting_configured(env=os.environ) -> bool:
     return bool(env.get("KALSEER_ALERT_URL") or env.get("KALSEER_ALERT_CMD"))
 
 
-def notice(data, today: str, alerting: bool = True) -> str:
+def heartbeat_configured(env=os.environ) -> bool:
+    # Same test as daily.sh's heartbeat(): an empty value counts as unset.
+    return bool(env.get("KALSEER_HEARTBEAT_URL"))
+
+
+def notice(data, today: str, alerting: bool = True, heartbeat: bool = True) -> str:
     """The gap notice, or "" when yesterday has a brief (or none ever did).
 
     alerting=False adds that this host pages nobody on a failed run, so the
-    brief tells the human why the gap went unnoticed."""
+    brief tells the human why the gap went unnoticed. heartbeat=False does the
+    same for no-run days, which only an external dead-man's switch can see."""
     today = datetime.date.fromisoformat(today)
     last = last_brief_before(pathlib.Path(data), today)
     if last is None or (today - last).days <= 1:
@@ -87,7 +93,13 @@ def notice(data, today: str, alerting: bool = True) -> str:
         "narrative." + ("" if alerting else
         " ALERTING IS OFF: neither KALSEER_ALERT_URL nor KALSEER_ALERT_CMD "
         "is set for this pipeline, so the failed runs paged nobody. Put that "
-        "in the brief's operator items: the human must configure one."))
+        "in the brief's operator items: the human must configure one.")
+        + ("" if heartbeat or not dead else
+        " NO DEAD-MAN'S SWITCH: KALSEER_HEARTBEAT_URL is not set, and a run "
+        "that never starts can't send an alert, so nothing paged for "
+        f"{', '.join(dead)}. Put that in the brief's operator items: the "
+        "human must point an external check (e.g. healthchecks.io, period 1 "
+        "day) at KALSEER_HEARTBEAT_URL in the kalseer-daily unit."))
 
 
 def main(argv: list[str]) -> int:
@@ -98,7 +110,8 @@ def main(argv: list[str]) -> int:
         argv = argv[:i] + argv[i + 2:]
     data = argv[0] if argv else os.environ.get(
         "KALSEER_DATA_DIR", pathlib.Path(__file__).parents[1] / "data")
-    note = notice(data, today, alerting=alerting_configured())
+    note = notice(data, today, alerting=alerting_configured(),
+                  heartbeat=heartbeat_configured())
     if note:
         print(note)
     return 0
