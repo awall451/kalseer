@@ -7,6 +7,8 @@ reads don't need a hand-written fetch script every run:
   python3 kalshi/kalshi.py event EVENT_TICKER           # board of all strikes
   python3 kalshi/kalshi.py series SERIES_TICKER [STATUS] # markets in a series
                                                          # (STATUS default: open)
+  python3 kalshi/kalshi.py history SERIES_TICKER [N]    # settled values, newest
+                                                         # N events (default 30)
 
 Prices and settlement values print as the API's exact strings — settlement
 sources are display-precision hazards, never round them through float.
@@ -87,6 +89,20 @@ def get_markets(**params) -> list[dict]:
     return _get("/markets", limit=1000, **params).get("markets", [])
 
 
+def settled_markets(series_ticker: str, max_pages: int = 5) -> list[dict]:
+    """Every settled market in a series, following the cursor (a busy
+    multi-city series like KXRAIN fills a 1000-market page in under 6 weeks)."""
+    out, cursor = [], None
+    for _ in range(max_pages):
+        d = _get("/markets", limit=1000, series_ticker=series_ticker,
+                 status="settled", cursor=cursor)
+        out.extend(d.get("markets", []))
+        cursor = d.get("cursor")
+        if not cursor:
+            break
+    return out
+
+
 def taker_fee(price: float, contracts: int = 1, rate: float = 0.07) -> float:
     """Kalshi taker fee in dollars: ceil-to-cent of rate * C * P * (1-P).
 
@@ -144,8 +160,33 @@ def fmt_board_row(m: dict) -> str:
             f"  {outcome:<10} {sub}")
 
 
+def fmt_history(markets: list[dict], limit: int | None = None) -> list[str]:
+    """Settled values as a dated series, newest event first.
+
+    The settlement source's own number, read back from Kalshi: e.g.
+    KXTRUMPAPPROVE's expiration_value is that day's RCP average, readable
+    here even when the source site refuses us. One line per event when all
+    its strikes settled on one value; one per market when they differ
+    (per-city families). Markets with no expiration_value are skipped."""
+    events = {}
+    for m in markets:
+        if m.get("expiration_value") in (None, ""):
+            continue
+        events.setdefault(m.get("event_ticker") or _s(m, "ticker"), []).append(m)
+    newest = sorted(events.items(), key=lambda kv: max(_s(m, "close_time") for m in kv[1]),
+                    reverse=True)[:limit]
+    lines = []
+    for ev, ms in newest:
+        if len({m["expiration_value"] for m in ms}) == 1:
+            lines.append(f"{ev:<34} {_s(ms[0], 'close_time')}  {ms[0]['expiration_value']}")
+        else:
+            lines.extend(f"{_s(m, 'ticker'):<34} {_s(m, 'close_time')}  {m['expiration_value']}"
+                         for m in sorted(ms, key=lambda m: _s(m, "ticker")))
+    return lines
+
+
 def main(argv: list[str]):
-    if not argv or argv[0] not in ("market", "event", "series"):
+    if not argv or argv[0] not in ("market", "event", "series", "history"):
         sys.exit(__doc__)
     cmd, args = argv[0], argv[1:]
     if not args:
@@ -163,6 +204,10 @@ def main(argv: list[str]):
         status = args[1] if len(args) > 1 else "open"
         for m in get_markets(series_ticker=args[0], status=status):
             print(fmt_board_row(m))
+    elif cmd == "history":
+        limit = int(args[1]) if len(args) > 1 else 30
+        for line in fmt_history(settled_markets(args[0]), limit=limit):
+            print(line)
 
 
 if __name__ == "__main__":

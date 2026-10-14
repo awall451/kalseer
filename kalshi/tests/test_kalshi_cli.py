@@ -114,3 +114,84 @@ def test_main_rejects_unknown_command():
         kalshi.main(["frobnicate"])
     with pytest.raises(SystemExit):
         kalshi.main([])
+
+
+# Item #20: the approval feed's settlement source (RCP) is 403 server-side,
+# but every settled KXTRUMPAPPROVE market carries that day's RCP average as
+# its expiration_value. `history` turns a series' settled markets into a dated
+# value series: one line per event when every strike shares the value, one
+# line per market when they don't (KXRAIN settles each city separately).
+def settled(ticker, event, value, close):
+    return {"ticker": ticker, "event_ticker": event, "status": "finalized",
+            "result": "no", "expiration_value": value, "close_time": close}
+
+
+APPROVE = [
+    settled("KXTRUMPAPPROVE-26OCT12-E38.1", "KXTRUMPAPPROVE-26OCT12", "38.1",
+            "2026-10-12T16:59:00Z"),
+    settled("KXTRUMPAPPROVE-26OCT13-A38.4", "KXTRUMPAPPROVE-26OCT13", "38.4",
+            "2026-10-13T16:59:00Z"),
+    settled("KXTRUMPAPPROVE-26OCT13-E38.4", "KXTRUMPAPPROVE-26OCT13", "38.4",
+            "2026-10-13T16:59:00Z"),
+    settled("KXTRUMPAPPROVE-26OCT12-U37.5", "KXTRUMPAPPROVE-26OCT12", "38.1",
+            "2026-10-12T16:59:00Z"),
+]
+
+
+def test_history_one_line_per_event_newest_first():
+    lines = kalshi.fmt_history(APPROVE)
+    assert len(lines) == 2
+    assert lines[0].split() == ["KXTRUMPAPPROVE-26OCT13", "2026-10-13T16:59:00Z", "38.4"]
+    assert lines[1].split() == ["KXTRUMPAPPROVE-26OCT12", "2026-10-12T16:59:00Z", "38.1"]
+
+
+def test_history_splits_events_whose_markets_settle_differently():
+    rain = [settled("KXRAIN-26OCT12-TTN", "KXRAIN-26OCT12", "0.02", "2026-10-13T05:00:00Z"),
+            settled("KXRAIN-26OCT12-TPA", "KXRAIN-26OCT12", "0.00", "2026-10-13T05:00:00Z")]
+    out = "\n".join(kalshi.fmt_history(rain))
+    assert "KXRAIN-26OCT12-TTN" in out and "0.02" in out
+    assert "KXRAIN-26OCT12-TPA" in out and "0.00" in out
+
+
+def test_history_keeps_exact_strings_and_skips_unvalued():
+    ms = [settled("KXAAAGASW-26OCT12-4.35", "KXAAAGASW-26OCT12", "4.3550",
+                  "2026-10-12T03:59:00Z"),
+          settled("KXAAAGASW-26OCT19-4.30", "KXAAAGASW-26OCT19", "",
+                  "2026-10-19T03:59:00Z")]
+    out = "\n".join(kalshi.fmt_history(ms))
+    assert "4.3550" in out             # trailing zero kept: never via float()
+    assert "KXAAAGASW-26OCT19" not in out
+
+
+def test_history_limits_to_newest_n_events():
+    lines = kalshi.fmt_history(APPROVE, limit=1)
+    assert len(lines) == 1 and "26OCT13" in lines[0]
+
+
+def test_main_history_reads_settled_markets_of_the_series(monkeypatch, capsys):
+    seen = {}
+
+    def fake(series):
+        seen["series"] = series
+        return APPROVE
+
+    monkeypatch.setattr(kalshi, "settled_markets", fake)
+    kalshi.main(["history", "KXTRUMPAPPROVE", "1"])
+    out = capsys.readouterr().out
+    assert seen == {"series": "KXTRUMPAPPROVE"}
+    assert "38.4" in out and "38.1" not in out
+
+
+def test_settled_markets_follows_the_cursor(monkeypatch):
+    pages = {None: {"markets": [APPROVE[0]], "cursor": "c2"},
+             "c2": {"markets": [APPROVE[1]], "cursor": ""}}
+    calls = []
+
+    def fake_get(path, **params):
+        calls.append(params)
+        return pages[params.get("cursor")]
+
+    monkeypatch.setattr(kalshi, "_get", fake_get)
+    assert kalshi.settled_markets("KXTRUMPAPPROVE") == APPROVE[:2]
+    assert all(c["series_ticker"] == "KXTRUMPAPPROVE" and c["status"] == "settled"
+               for c in calls)
