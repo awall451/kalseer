@@ -26,6 +26,9 @@ import sys
 import paper
 
 VOICE = os.environ.get("KALSEER_TTS_VOICE", "en-US-AndrewNeural")
+# The voice reads "Kalseer" as "Kal-shure"; it's Kalshi + seer, three
+# syllables. Respelled on the way to the voice ("Cal" so it isn't "Kawl").
+SPOKEN_NAME = "Cal-see-er"
 WIKI_CONTENT = pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "content"
 
 
@@ -85,6 +88,10 @@ def pick_brief(arg_date: str | None):
     return newest.stem.replace("brief-", ""), newest
 
 
+def pronounce(text: str) -> str:
+    return re.sub(r"\bkalseer\b", SPOKEN_NAME, text, flags=re.I)
+
+
 def synth(edge_tts, text: str, out: pathlib.Path):
     """Render text to out. edge-tts creates its output file before the
     network can fail, and the dashboard shows a player whenever the mp3
@@ -93,7 +100,7 @@ def synth(edge_tts, text: str, out: pathlib.Path):
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
     try:
-        asyncio.run(edge_tts.Communicate(text, VOICE).save(str(tmp)))
+        asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(tmp)))
         os.replace(tmp, out)
     finally:
         tmp.unlink(missing_ok=True)
@@ -211,7 +218,7 @@ def speak_wiki():
             if not src.exists():
                 continue
             text = f"Kalseer wiki: {item['title']}.\n\n" + wiki_to_speech(src.read_text())
-            h = hashlib.sha256(f"{VOICE}\n{text}".encode()).hexdigest()
+            h = hashlib.sha256(f"{VOICE}\n{pronounce(text)}".encode()).hexdigest()
             mp3 = out_dir / f"{slug}.mp3"
             if old.get(slug) == h and mp3.exists():
                 index[slug] = h
