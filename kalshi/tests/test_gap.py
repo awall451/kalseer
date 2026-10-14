@@ -205,3 +205,50 @@ def test_no_logs_dir_claims_nothing_about_runs(tmp_path):
     # an install without the logs dir can't tell; don't guess either way
     note = gap.notice(briefs(tmp_path, "2026-10-01"), "2026-10-09")
     assert "no pipeline run started" not in note
+
+
+# A host-down gap can't page through KALSEER_ALERT_URL: no run started, so
+# nothing called alert(). Only the external dead-man's switch (daily.sh's
+# KALSEER_HEARTBEAT_URL) notices that. When a gap has no-run days and the
+# switch is unset, the notice says so, and the brief passes it to the human.
+def test_host_down_gap_flags_missing_heartbeat(tmp_path):
+    briefs(tmp_path, "2026-10-10")
+    logs(tmp_path, "2026-10-10", "2026-10-13")
+    note = gap.notice(tmp_path, "2026-10-13", heartbeat=False)
+    assert "KALSEER_HEARTBEAT_URL" in note
+    assert "operator" in note.lower()
+
+
+def test_failed_run_gap_quiet_about_heartbeat(tmp_path):
+    # every gap day started (and could alert); the switch isn't what was missing
+    briefs(tmp_path, "2026-10-01")
+    logs(tmp_path, *[f"2026-10-0{d}" for d in range(2, 10)])
+    note = gap.notice(tmp_path, "2026-10-09", heartbeat=False)
+    assert "PIPELINE GAP" in note
+    assert "KALSEER_HEARTBEAT_URL" not in note
+
+
+def test_host_down_gap_quiet_about_heartbeat_when_configured(tmp_path):
+    briefs(tmp_path, "2026-10-10")
+    logs(tmp_path, "2026-10-10", "2026-10-13")
+    note = gap.notice(tmp_path, "2026-10-13", heartbeat=True)
+    assert "no pipeline run started" in note
+    assert "KALSEER_HEARTBEAT_URL" not in note
+
+
+def test_cli_reads_heartbeat_config_from_env(tmp_path):
+    briefs(tmp_path, "2026-10-10")
+    logs(tmp_path, "2026-10-10", "2026-10-13")
+    base = {k: v for k, v in os.environ.items() if k != "KALSEER_HEARTBEAT_URL"}
+    cmd = [sys.executable, str(REPO / "kalshi" / "gap.py"), str(tmp_path),
+           "--today", "2026-10-13"]
+    bare = subprocess.run(cmd, env=base, capture_output=True, text=True)
+    assert "KALSEER_HEARTBEAT_URL" in bare.stdout
+    wired = subprocess.run(cmd, env=dict(base, KALSEER_HEARTBEAT_URL="https://hc.example/x"),
+                           capture_output=True, text=True)
+    assert "PIPELINE GAP" in wired.stdout
+    assert "KALSEER_HEARTBEAT_URL" not in wired.stdout
+    # An empty value counts as unset, same as daily.sh's ${VAR:-} test.
+    empty = subprocess.run(cmd, env=dict(base, KALSEER_HEARTBEAT_URL=""),
+                           capture_output=True, text=True)
+    assert "KALSEER_HEARTBEAT_URL" in empty.stdout
