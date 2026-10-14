@@ -26,9 +26,11 @@ import sys
 import paper
 
 VOICE = os.environ.get("KALSEER_TTS_VOICE", "en-US-AndrewNeural")
-# The voice reads "Kalseer" as "Kal-shure"; it's Kalshi + seer, three
-# syllables. Respelled on the way to the voice ("Cal" so it isn't "Kawl").
+# The voice has no lexicon entry for these names and guesses from spelling:
+# both "Kalseer" and "Kalshi" come out "Kal-shure". Respelled on the way to
+# the voice ("Cal" so it isn't "Kawl"). Kalseer = Kalshi + seer.
 SPOKEN_NAME = "Cal-see-er"
+SPOKEN_KALSHI = "Cal-shee"
 WIKI_CONTENT = pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "content"
 
 
@@ -89,7 +91,8 @@ def pick_brief(arg_date: str | None):
 
 
 def pronounce(text: str) -> str:
-    return re.sub(r"\bkalseer\b", SPOKEN_NAME, text, flags=re.I)
+    text = re.sub(r"\bkalseer\b", SPOKEN_NAME, text, flags=re.I)
+    return re.sub(r"\bkalshi\b", SPOKEN_KALSHI, text, flags=re.I)
 
 
 def synth(edge_tts, text: str, out: pathlib.Path):
