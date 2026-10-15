@@ -191,3 +191,18 @@ def test_rt_cli_grant_present():
     until the CLI lands."""
     allow = load_allow(JUDGMENT)
     assert "Bash(python3 kalshi/rt.py *)" in allow
+
+
+def test_wholesale_diesel_news_hosts_have_fetch_and_curl_rules():
+    """Operator item #23 (10/14 brief): KXDIESELW-26OCT19 repriced ~15c in
+    a day on what looked like a ULSD futures jump. A WebSearch surfaced
+    FreightWaves 'diesel futures at post-war high' headlines, but WebFetch
+    of freightwaves.com stopped for approval mid-run (eia.gov answered in
+    the same batch, with daily spot only to 10/06). The driver went
+    unverified and the session passed on the divergence. Same shape as
+    PMMS: direct WebFetch + curl routes (quoted twins per item #17)."""
+    allow = load_allow(JUDGMENT)
+    for host in ("freightwaves.com", "www.freightwaves.com"):
+        assert f"Bash(curl -s https://{host}/*)" in allow, host
+        assert f"Bash(curl -s * https://{host}/*)" in allow, host
+        assert f"WebFetch(domain:{host})" in allow, host
