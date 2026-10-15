@@ -69,13 +69,14 @@ def notice(data, today: str, alerting: bool = True, heartbeat: bool = True) -> s
         ran = (f" (no pipeline run started at all on {', '.join(dead)} — host "
                "down or the timer never fired — so those days have no AAA "
                "capture, wx archive, or settle)")
-        aaa = ("a no-run day's AAA print is NOT in aaa/prints.jsonl: it "
-               "survives only in the page's retention cells, so read it from "
+        aaa = ("a no-run day's AAA print is NOT in aaa/prints.jsonl. Its "
+               "national regular and diesel averages are Kalshi daily "
+               "settlements, exact and dated by print day: `python3 "
+               "kalshi/kalshi.py history KXAAAGASD` and `history KXDIESELD`. "
+               "Mid-grade/premium survive only in the page's retention cells: "
                "the `yesterday`/`week_ago` cells of the first post-gap row "
                "(count from the raw page's 'Price as of' date, not the row's "
-               "fetch day); a day no cell covers is lost from AAA — take a "
-               "settled market's `expiration_value` instead; other gap-day "
-               "prints are in aaa/prints.jsonl.")
+               "fetch day). Other gap-day prints are in aaa/prints.jsonl.")
     else:
         ran = " (settle, scan, and the AAA capture still ran)"
         aaa = "gap-day AAA prints are in aaa/prints.jsonl."
@@ -86,7 +87,7 @@ def notice(data, today: str, alerting: bool = True, heartbeat: bool = True) -> s
         "pre-registration and watchlist prediction that came due in the gap. "
         "Pull time-limited sources first — NWS CLI archives age out "
         "(`python3 kalshi/wx.py cli LOC --list`); market finals stay readable "
-        "(`python3 kalshi/kalshi.py market TICKER`, `series SERIES settled`); "
+        "(`python3 kalshi/kalshi.py market TICKER`, `history SERIES`); "
         f"{aaa} Predictions that were "
         "never frozen because their run died are unscorable — say so, never "
         "reconstruct them. Name the gap and the catch-up in the brief "

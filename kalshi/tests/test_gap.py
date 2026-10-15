@@ -252,3 +252,23 @@ def test_cli_reads_heartbeat_config_from_env(tmp_path):
     empty = subprocess.run(cmd, env=dict(base, KALSEER_HEARTBEAT_URL=""),
                            capture_output=True, text=True)
     assert "KALSEER_HEARTBEAT_URL" in empty.stdout
+
+
+# KXAAAGASD / KXDIESELD settle every day on the exact AAA national regular /
+# diesel average, dated by print day (KXAAAGASD-26OCT11 = 4.3585, the 10/11
+# print gap #4 lost). `kalshi.py history` reads them back for any no-run day,
+# with no retention-cell date arithmetic and no ageing out after a week.
+def test_host_down_gap_points_at_daily_aaa_settlement_history(tmp_path):
+    briefs(tmp_path, "2026-10-10")
+    logs(tmp_path, "2026-10-10", "2026-10-13")
+    note = gap.notice(tmp_path, "2026-10-13")
+    assert "kalshi.py history KXAAAGASD" in note
+    assert "history KXDIESELD" in note
+    assert "retention cells" in note       # still the only mid-grade/premium copy
+    assert note.index("history KXAAAGASD") < note.index("retention cells")
+
+
+def test_finals_pointer_names_history(tmp_path):
+    note = gap.notice(briefs(tmp_path, "2026-10-01"), "2026-10-09")
+    assert "history SERIES" in note
+    assert "history KXAAAGASD" not in note  # the journal has every row here
