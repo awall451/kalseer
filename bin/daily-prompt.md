@@ -48,7 +48,11 @@ approval-blocked (proven live 9/27).
      gap day from the journal instead of the page's aging retention cells.
      Rows are dated by the page's own "Price as of" stamp (`as_of`), not
      the clock: a catch-up run before AAA's overnight update journals
-     yesterday's print, and today's row won't exist yet
+     yesterday's print, and today's row won't exist yet.
+     `python3 kalshi/fuelscore.py regular|diesel [--window N]` scores the
+     mechanical RW / MOM / DRIFT forecasts over every journaled day (MAE,
+     wins) and prints tomorrow's forecasts plus the drift bar — use it
+     instead of re-deriving the race by hand
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math

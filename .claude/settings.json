@@ -3,6 +3,7 @@
   "permissions": {
     "allow": [
       "Bash(python3 kalshi/paper.py *)",
+      "Bash(python3 kalshi/fuelscore.py *)",
       "Bash(python3 kalshi/scanner.py *)",
       "Bash(python3 kalshi/kalshi.py *)",
       "Bash(python3 kalshi/wx.py *)",
