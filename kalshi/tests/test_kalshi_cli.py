@@ -195,3 +195,70 @@ def test_settled_markets_follows_the_cursor(monkeypatch):
     assert kalshi.settled_markets("KXTRUMPAPPROVE") == APPROVE[:2]
     assert all(c["series_ticker"] == "KXTRUMPAPPROVE" and c["status"] == "settled"
                for c in calls)
+
+
+# --- book: orderbook depth (the judgment step sized two diesel trades off
+# hand-rolled orderbook curls, 10/9 and 10/13; one curl died on DNS) -------
+
+BOOK = {"orderbook_fp": {
+    "yes_dollars": [["0.0100", "1051.00"], ["0.0200", "1070.00"]],
+    "no_dollars": [["0.7700", "4.00"], ["0.9100", "765.00"],
+                   ["0.9600", "1271.28"]]}}
+
+
+def test_get_orderbook_reads_the_fixed_point_payload(monkeypatch):
+    # The live API answers with orderbook_fp (verified 2026-10-16); the old
+    # "orderbook" key is gone, so the client must read the new one.
+    seen = {}
+
+    def fake_get(path, **params):
+        seen.update(path=path, **params)
+        return BOOK
+
+    monkeypatch.setattr(kalshi, "_get", fake_get)
+    assert kalshi.get_orderbook("T", depth=5) == BOOK["orderbook_fp"]
+    assert seen == {"path": "/markets/T/orderbook", "depth": 5}
+
+
+def test_fmt_book_buy_yes_ladder_comes_from_no_bids_best_first():
+    lines = kalshi.fmt_book("T", BOOK["orderbook_fp"])
+    i = next(n for n, l in enumerate(lines) if l.strip().startswith("buy YES"))
+    # 1 - 0.9600 = 0.0400 is the YES ask; cum adds up the sweep
+    assert lines[i + 1].split() == ["0.0400", "1271.28", "1271.28"]
+    assert lines[i + 2].split() == ["0.0900", "765.00", "2036.28"]
+    assert lines[i + 3].split() == ["0.2300", "4.00", "2040.28"]
+
+
+def test_fmt_book_buy_no_ladder_comes_from_yes_bids_best_first():
+    lines = kalshi.fmt_book("T", BOOK["orderbook_fp"])
+    i = next(n for n, l in enumerate(lines) if l.strip().startswith("buy NO"))
+    assert lines[i + 1].split() == ["0.9800", "1070.00", "1070.00"]
+    assert lines[i + 2].split() == ["0.9900", "1051.00", "2121.00"]
+
+
+def test_fmt_book_empty_side_says_so():
+    lines = kalshi.fmt_book("T", {"yes_dollars": [], "no_dollars": None})
+    assert lines[0].startswith("T")
+    assert sum("(empty)" in l for l in lines) == 2
+
+
+def test_main_book_command_prints_each_ticker(monkeypatch, capsys):
+    calls = []
+
+    def fake(ticker, depth=8):
+        calls.append((ticker, depth))
+        return BOOK["orderbook_fp"]
+
+    monkeypatch.setattr(kalshi, "get_orderbook", fake)
+    kalshi.main(["book", "A", "B"])
+    out = capsys.readouterr().out
+    assert calls == [("A", 8), ("B", 8)]
+    assert out.count("buy YES") == 2
+
+
+def test_main_book_depth_option(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(kalshi, "get_orderbook",
+                        lambda t, depth=8: calls.append(depth) or {})
+    kalshi.main(["book", "A", "--depth", "3"])
+    assert calls == [3]

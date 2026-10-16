@@ -67,7 +67,9 @@ approval-blocked (proven live 9/27).
    to `open`; use `settled` to read finals),
    `python3 kalshi/kalshi.py history SERIES_TICKER [N]` (the settlement
    source's own value per settled event, newest first — e.g. KXTRUMPAPPROVE
-   gives the daily RCP approval average even though RCP refuses our fetches).
+   gives the daily RCP approval average even though RCP refuses our fetches),
+   `python3 kalshi/kalshi.py book TICKER [--depth N]` (taker depth per side,
+   best first with cumulative size — size against it when the top is thin).
    Prices print as the API's exact strings — quote them verbatim in the
    watchlist.
    For NWS climate reports (rain scoring), skip the two-step products dance:
