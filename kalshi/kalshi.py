@@ -9,6 +9,8 @@ reads don't need a hand-written fetch script every run:
                                                          # (STATUS default: open)
   python3 kalshi/kalshi.py history SERIES_TICKER [N]    # settled values, newest
                                                          # N events (default 30)
+  python3 kalshi/kalshi.py book TICKER [TICKER ...] [--depth N]  # taker depth
+                                                         # per side, cumulative
 
 Prices and settlement values print as the API's exact strings — settlement
 sources are display-precision hazards, never round them through float.
@@ -20,6 +22,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from decimal import Decimal
 
 BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
@@ -81,7 +84,9 @@ def get_series(series_ticker: str) -> dict:
 
 
 def get_orderbook(ticker: str, depth: int = 8) -> dict:
-    return _get(f"/markets/{ticker}/orderbook", depth=depth)["orderbook"]
+    """Resting bids per side as exact strings, worst to best:
+    {"yes_dollars": [[price, qty], ...], "no_dollars": [...]}."""
+    return _get(f"/markets/{ticker}/orderbook", depth=depth)["orderbook_fp"]
 
 
 def get_markets(**params) -> list[dict]:
@@ -185,8 +190,28 @@ def fmt_history(markets: list[dict], limit: int | None = None) -> list[str]:
     return lines
 
 
+def fmt_book(ticker: str, book: dict) -> list[str]:
+    """Taker ladders, best price first, with cumulative size.
+
+    Kalshi's book holds bids only: a YES buyer lifts resting NO bids at
+    1 − NO bid, a NO buyer lifts YES bids at 1 − YES bid. Decimal keeps the
+    derived prices exact (1 − 0.9600 is 0.0400, not 0.039999…)."""
+    lines = [ticker]
+    for side, against in (("YES", "no_dollars"), ("NO", "yes_dollars")):
+        head = f"  buy {side} (from {against.split('_')[0].upper()} bids)"
+        lines.append(f"{head:<24}{'price':>8}{'qty':>11}{'cum':>11}")
+        bids = book.get(against) or []
+        if not bids:
+            lines.append("    (empty)")
+        cum = Decimal(0)
+        for price, qty in reversed(bids):
+            cum += Decimal(qty)
+            lines.append(f"{'':<24}{Decimal(1) - Decimal(price):>8}{qty:>11}{cum:>11}")
+    return lines
+
+
 def main(argv: list[str]):
-    if not argv or argv[0] not in ("market", "event", "series", "history"):
+    if not argv or argv[0] not in ("market", "event", "series", "history", "book"):
         sys.exit(__doc__)
     cmd, args = argv[0], argv[1:]
     if not args:
@@ -208,6 +233,13 @@ def main(argv: list[str]):
         limit = int(args[1]) if len(args) > 1 else 30
         for line in fmt_history(settled_markets(args[0]), limit=limit):
             print(line)
+    elif cmd == "book":
+        depth = 8
+        if "--depth" in args:
+            i = args.index("--depth")
+            depth, args = int(args[i + 1]), args[:i] + args[i + 2:]
+        for t in args:
+            print("\n".join(fmt_book(t, get_orderbook(t, depth=depth))))
 
 
 if __name__ == "__main__":
