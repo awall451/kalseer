@@ -77,6 +77,12 @@ approval-blocked (proven live 9/27).
    prints daily n_total newest-first plus the newest published day and its
    lag (the mostly-published-window gate). A quota error is final for this
    run — respect its message, never hammer the shared endpoint.
+   For the wholesale driver behind a gas/diesel board move:
+   `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
+   dated daily front-month closes newest-first with the day change (a raw
+   Yahoo symbol like `RBX26.NYM` reads one contract month). The newest bar
+   is live until the ~14:30 ET settle; cross-check one day against a quoted
+   settle (e.g. FreightWaves) before leaning on the levels.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢

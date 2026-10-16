@@ -206,3 +206,13 @@ def test_wholesale_diesel_news_hosts_have_fetch_and_curl_rules():
         assert f"Bash(curl -s https://{host}/*)" in allow, host
         assert f"Bash(curl -s * https://{host}/*)" in allow, host
         assert f"WebFetch(domain:{host})" in allow, host
+
+
+def test_futures_cli_grant_present():
+    """Item #23 follow-up (10/15 brief: "a dated RBOB source would help the
+    gas boards the same way FreightWaves helped diesel"): kalshi/futures.py
+    prints dated NYMEX front-month closes (RBOB, ULSD, WTI, Brent) and is
+    invoked by relative path like every other repo CLI, so it needs its own
+    Bash grant or the judgment run stops for approval mid-research."""
+    allow = load_allow(JUDGMENT)
+    assert "Bash(python3 kalshi/futures.py *)" in allow
