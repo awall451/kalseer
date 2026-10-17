@@ -52,7 +52,8 @@ approval-blocked (proven live 9/27).
      `python3 kalshi/fuelscore.py regular|diesel [--window N]` scores the
      mechanical RW / MOM / DRIFT forecasts over every journaled day (MAE,
      wins) and prints tomorrow's forecasts plus the drift bar — use it
-     instead of re-deriving the race by hand
+     instead of re-deriving the race by hand; `--settled` adds the
+     KXAAAGASD/KXDIESELD finals for days the journal lacks (back to August)
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math
