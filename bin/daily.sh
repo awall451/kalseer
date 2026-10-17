@@ -165,6 +165,9 @@ run_step aaa     python3 kalshi/aaa.py
 # Same for the rain/high-temp settlement source: NWS keeps ~7 days of CLI
 # reports, and gap #3 (Oct 2026) outlived the 10/1 finals.
 run_step wx      python3 kalshi/wx.py archive
+# The rain family's mechanical legs (NWS PoP + board mid), frozen before the
+# judgment step so a run that skips the grids can't cost a scored day.
+run_step rainfreeze python3 kalshi/rainfreeze.py freeze
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000

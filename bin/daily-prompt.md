@@ -78,6 +78,10 @@ approval-blocked (proven live 9/27).
    NWS drops reports after ~7 days, but the pipeline's `wx` step keeps every
    version it has seen in `$DATA/wx/cli/<LOC>/<id>.json` (verbatim
    productText); read those for older days.
+   The pipeline's `rainfreeze` step freezes the DC/NYC/OKC RAW (NWS daytime
+   PoP) and MKT (board bid/ask) legs into `$DATA/wx/rain-freeze.jsonl` before
+   you run, so those days stay scorable even if you skip the grids;
+   `python3 kalshi/rainfreeze.py score [--days N]` prints their Brier scores.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
