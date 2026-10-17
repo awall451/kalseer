@@ -83,6 +83,9 @@ approval-blocked (proven live 9/27).
    prints daily n_total newest-first plus the newest published day and its
    lag (the mostly-published-window gate). A quota error is final for this
    run — respect its message, never hammer the shared endpoint.
+   The pipeline's `portwatch` step journals Hormuz first prints and later
+   revisions daily; `python3 kalshi/portwatch.py first [--since D]` reads
+   them offline (no quota) — Kalshi settles on the first print.
    For the wholesale driver behind a gas/diesel board move:
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw
