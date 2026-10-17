@@ -160,7 +160,14 @@ def main(argv: list[str]):
         else:
             sys.exit(__doc__)
     if argv[0] == "archive":
-        new, revised = archive(port)
+        try:
+            new, revised = archive(port)
+        except SystemExit as e:
+            if e.code != 2:
+                raise
+            print(f"portwatch archive: {port}: skipped (arcgis error, "
+                  f"final for this run)")
+            return
         print(f"portwatch archive: {port}: {new} new days, {revised} revised")
         return
     if argv[0] == "first":

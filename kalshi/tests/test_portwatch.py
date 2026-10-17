@@ -255,6 +255,31 @@ def test_main_archive_reports_counts(api, archive_dir, capsys):
     assert "2 new days, 0 revised" in capsys.readouterr().out
 
 
+def test_archive_quota_error_skips_without_failing_the_pipeline(
+        monkeypatch, archive_dir, capsys):
+    # a quota answer is final for the run (HAZARD 1b), not a broken source;
+    # failing the step would page the human for the shared endpoint's load
+    monkeypatch.setattr(portwatch.urllib.request, "urlopen",
+                        lambda req, timeout=30: FakeResponse(QUOTA_ERROR))
+    portwatch.main(["archive"])
+    assert "skipped" in capsys.readouterr().out
+    assert not archive_dir.exists()
+
+
+class FakeResponse:
+    def __init__(self, body):
+        self.body = json.dumps(body).encode()
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 def test_daily_archives_portwatch_before_the_judgment_step():
     daily = (pathlib.Path(__file__).parents[2] / "bin" / "daily.sh").read_text()
     step = daily.index("run_step portwatch")
