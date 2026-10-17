@@ -1,4 +1,5 @@
-"""Mechanical daily model race off the AAA journal. Stdlib only, no network.
+"""Mechanical daily model race off the AAA journal. Stdlib only; no network
+unless --settled.
 
 The judgment step scores three mechanical forecasts of tomorrow's AAA print
 every run and gates drift trades on a bar. They need no judgment, so they
@@ -8,6 +9,8 @@ including days a dead run never pre-registered.
   python3 kalshi/fuelscore.py regular             # gas (KXAAAGASD/W/M)
   python3 kalshi/fuelscore.py diesel --window 10  # diesel (KXDIESELD/W)
   python3 kalshi/fuelscore.py regular --days 30   # more scored rows
+  python3 kalshi/fuelscore.py regular --settled   # + KXAAAGASD/KXDIESELD
+                                                  # finals the journal lacks
 
   RW     tomorrow = today
   MOM    tomorrow = today + today's change
@@ -20,14 +23,22 @@ Rows print newest first: actual, then each model's forecast and its error
 ('-' instead). The '# n=' summary is MAE and wins over days all three models
 scored (ties win for each tied model); '# next' is tomorrow's forecasts and
 the drift bar. Prices come from the journal's exact strings via Decimal.
+
+--settled fills days the journal lacks (it starts 9/24) from Kalshi's
+settled daily markets, whose expiration_value is the exact AAA print dated
+by the event ticker. The journal wins any day both hold; '# settled' reports
+how many days were added and any day the two disagree. Slow: it pages every
+settled strike (~1-2 min).
 """
 
 import json
 import os
 import pathlib
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+
+import kalshi
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
@@ -36,6 +47,7 @@ JOURNAL = DATA / "aaa" / "prints.jsonl"
 GRADES = ("regular", "mid_grade", "premium", "diesel")
 MODELS = ("RW", "MOM", "DRIFT")
 CENT = Decimal(100)
+SETTLED = {"regular": "KXAAAGASD", "diesel": "KXDIESELD"}
 
 
 def series(grade: str) -> list[tuple[str, Decimal]]:
@@ -50,6 +62,19 @@ def series(grade: str) -> list[tuple[str, Decimal]]:
         if cell:
             by_day[rec["date"]] = Decimal(cell.lstrip("$"))
     return sorted(by_day.items())
+
+
+def settled_prints(grade: str) -> dict[str, Decimal]:
+    """{date: print} from the grade's settled daily series. The API drops
+    trailing zeros ('4.347'); pad back to AAA's 4 places."""
+    out = {}
+    for m in kalshi.settled_markets(SETTLED[grade]):
+        value, event = m.get("expiration_value"), m.get("event_ticker") or ""
+        if value in (None, "") or "-" not in event:
+            continue
+        day = datetime.strptime(event.split("-")[1], "%y%b%d").date()
+        out[day.isoformat()] = Decimal(value).quantize(Decimal("0.0001"))
+    return out
 
 
 def _back(day: str, n: int) -> str:
@@ -91,6 +116,11 @@ def main(argv: list[str]):
     if not argv or argv[0] not in GRADES:
         sys.exit(__doc__)
     grade, window, days, opts = argv[0], 5, 10, argv[1:]
+    use_settled = "--settled" in opts
+    opts = [o for o in opts if o != "--settled"]
+    if use_settled and grade not in SETTLED:
+        sys.exit(f"--settled: no daily series for {grade} "
+                 f"(only {', '.join(SETTLED)})")
     while opts:
         if opts[0] in ("--window", "--days") and len(opts) > 1:
             if opts[0] == "--window":
@@ -101,6 +131,18 @@ def main(argv: list[str]):
         else:
             sys.exit(__doc__)
     rows = series(grade)
+    note = None
+    if use_settled:
+        journaled = dict(rows)
+        finals = settled_prints(grade)
+        clash = [f"{d} journal {journaled[d]} vs settled {finals[d]}"
+                 for d in sorted(journaled)
+                 if d in finals and finals[d] != journaled[d]]
+        merged = {**finals, **journaled}
+        note = (f"# settled: +{len(merged) - len(journaled)} days from "
+                f"{SETTLED[grade]} (journal wins)"
+                + (f"; disagree: {'; '.join(clash)}" if clash else ""))
+        rows = sorted(merged.items())
     if not rows:
         print(f"# no {grade} prints in {JOURNAL}")
         return
@@ -123,6 +165,8 @@ def main(argv: list[str]):
                 wins[m] += e[m] == best
     for line in reversed(lines[-days:]):
         print(line)
+    if note:
+        print(note)
     n = len(errs["RW"])
     if n:
         print(f"# n={n} ({grade}, window {window}): " + "  ".join(

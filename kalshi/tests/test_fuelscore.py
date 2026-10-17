@@ -160,3 +160,76 @@ def test_usage_on_unknown_grade(journal):
     with pytest.raises(SystemExit) as e:
         fuelscore.main(["kerosene"])
     assert "regular" in str(e.value.code)
+
+
+# --settled: the journal starts 9/24, but KXAAAGASD / KXDIESELD settle on
+# the exact AAA print dated by the event ticker, back to August. The 10/16
+# brief scores the race over n=42 by hand; the journal alone gives n=17.
+
+def settled(event, value, strike="4.330"):
+    return {"ticker": f"{event}-T{strike}", "event_ticker": event,
+            "expiration_value": value, "close_time": "x"}
+
+
+@pytest.fixture
+def finals(monkeypatch):
+    calls = []
+
+    def fake(series_ticker, max_pages=5):
+        calls.append(series_ticker)
+        return [settled("KXAAAGASD-26OCT12", "4.347"),
+                settled("KXAAAGASD-26OCT12", "4.347", "4.340"),
+                settled("KXAAAGASD-26OCT08", "4.3510"),
+                settled("KXAAAGASD-26OCT15", "4.3999"),
+                {"ticker": "KXAAAGASD-26OCT16-T4.33",
+                 "event_ticker": "KXAAAGASD-26OCT16", "expiration_value": ""}]
+    monkeypatch.setattr(fuelscore.kalshi, "settled_markets", fake)
+    return calls
+
+
+def test_settled_prints_dates_events_and_pads_exact_strings(finals):
+    got = fuelscore.settled_prints("regular")
+    assert finals == ["KXAAAGASD"]
+    # unsettled 10/16 skipped; '4.347' is the API dropping a trailing zero
+    assert got == {"2026-10-08": fuelscore.Decimal("4.3510"),
+                   "2026-10-12": fuelscore.Decimal("4.3470"),
+                   "2026-10-15": fuelscore.Decimal("4.3999")}
+    assert str(got["2026-10-12"]) == "4.3470"
+
+
+def test_settled_diesel_reads_kxdieseld(monkeypatch):
+    seen = []
+    monkeypatch.setattr(fuelscore.kalshi, "settled_markets",
+                        lambda s, max_pages=5: seen.append(s) or [])
+    assert fuelscore.settled_prints("diesel") == {}
+    assert seen == ["KXDIESELD"]
+
+
+def test_settled_fills_gaps_and_the_journal_wins(journal, finals, capsys):
+    journal([row(d, p) for d, p in SERIES if d != "2026-10-12"])
+    fuelscore.main(["regular", "--window", "2", "--settled"])
+    out = capsys.readouterr().out
+    by_day = {l[:10]: l for l in out.splitlines() if l[:4].isdigit()}
+    # 10/12 recovered from KXAAAGASD, so 10/13 is scorable again
+    assert by_day["2026-10-12"].startswith("2026-10-12  4.3470")
+    assert "RW 4.3470 -0.55" in by_day["2026-10-13"]
+    # 10/08 extends the series back; 10/15 keeps the journal's print
+    assert "2026-10-09" in by_day
+    assert by_day["2026-10-15"].startswith("2026-10-15  4.3532")
+    note = [l for l in out.splitlines() if l.startswith("# settled")][0]
+    assert "+2 days from KXAAAGASD" in note
+    assert "2026-10-15 journal 4.3532 vs settled 4.3999" in note
+
+
+def test_without_settled_flag_no_network(journal, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise AssertionError("network")
+    monkeypatch.setattr(fuelscore.kalshi, "settled_markets", boom)
+    fuelscore.main(["regular"])
+    assert "# settled" not in capsys.readouterr().out
+
+
+def test_settled_refuses_grades_without_a_series(journal):
+    with pytest.raises(SystemExit) as e:
+        fuelscore.main(["premium", "--settled"])
+    assert "regular" in str(e.value.code) and "diesel" in str(e.value.code)
