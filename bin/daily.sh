@@ -162,6 +162,9 @@ $(cat bin/daily-prompt.md)" \
 # raw page archived first, so a day of the gas/diesel series can never be
 # lost to a failed judgment step again (gap #2 cost 12 runs in Sep 2026).
 run_step aaa     python3 kalshi/aaa.py
+# Hormuz settles on PortWatch's FIRST print, which it later revises; one
+# query a day journals both, well before the judgment step spends quota.
+run_step portwatch python3 kalshi/portwatch.py archive
 # Same for the rain/high-temp settlement source: NWS keeps ~7 days of CLI
 # reports, and gap #3 (Oct 2026) outlived the 10/1 finals.
 run_step wx      python3 kalshi/wx.py archive

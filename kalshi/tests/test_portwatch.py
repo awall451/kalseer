@@ -186,3 +186,102 @@ def test_iso_string_with_time_part_still_yields_the_day(api, capsys):
     out = capsys.readouterr().out.splitlines()
     data = [line for line in out if not line.startswith("#")]
     assert data == ["2026-09-20  7", "2026-09-19  6"]
+
+
+# archive / first: Kalshi settles Hormuz on the FIRST print and PortWatch
+# revises upward (HAZARD 1c; the revision ledger was hand re-reads, n=3).
+# The quota allows ~2-3 queries a run and the 10/16 brief skipped a call
+# "to save quota". One pipeline query a day journals every first print and
+# every revision, so the judgment step can read both without spending quota.
+
+@pytest.fixture
+def archive_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(portwatch, "DATA", tmp_path)
+    return tmp_path / "portwatch" / "hormuz.jsonl"
+
+
+def journal_rows(path):
+    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+
+
+def test_archive_journals_first_prints_oldest_first(api, archive_dir):
+    assert portwatch.archive("Hormuz") == (2, 0)
+    rows = journal_rows(archive_dir)
+    assert [(r["date"], r["n_total"]) for r in rows] == [
+        ("2026-09-15", 4), ("2026-09-16", 1)]
+    assert all("seen_at" in r and "revised_from" not in r for r in rows)
+    # one query per run, Hormuz, a dated window
+    assert len(api["calls"]) == 1
+    assert "Hormuz" in api["calls"][0]["where"]
+
+
+def test_archive_rerun_adds_nothing_and_logs_revisions(api, archive_dir):
+    portwatch.archive("Hormuz")
+    api["response"] = {"features": [
+        {"attributes": {"date": SEP15, "n_total": 4}},
+        {"attributes": {"date": SEP16, "n_total": 3}},
+        {"attributes": {"date": "2026-09-17", "n_total": 2}}]}
+    assert portwatch.archive("Hormuz") == (1, 1)
+    rows = journal_rows(archive_dir)
+    rev = [r for r in rows if "revised_from" in r]
+    assert [(r["date"], r["revised_from"], r["n_total"]) for r in rev] == [
+        ("2026-09-16", 1, 3)]
+    assert portwatch.archive("Hormuz") == (0, 0)
+
+
+def test_first_prints_first_and_latest_per_day(api, archive_dir, capsys):
+    portwatch.archive("Hormuz")
+    api["response"] = {"features": [
+        {"attributes": {"date": SEP15, "n_total": 4}},
+        {"attributes": {"date": SEP16, "n_total": 3}}]}
+    portwatch.archive("Hormuz")
+    api["calls"].clear()
+    portwatch.main(["first", "--since", "2026-09-01"])
+    out = capsys.readouterr().out.splitlines()
+    assert api["calls"] == []  # offline: no quota spent
+    data = [l for l in out if not l.startswith("#")]
+    assert data == ["2026-09-16  first 1  latest 3  (+2)",
+                    "2026-09-15  first 4  latest 4"]
+    assert any(l.startswith("# 1 of 2 days revised") for l in out)
+
+
+def test_first_without_an_archive_says_so(archive_dir, capsys):
+    portwatch.main(["first"])
+    assert "no archive" in capsys.readouterr().out
+
+
+def test_main_archive_reports_counts(api, archive_dir, capsys):
+    portwatch.main(["archive"])
+    assert "2 new days, 0 revised" in capsys.readouterr().out
+
+
+def test_archive_quota_error_skips_without_failing_the_pipeline(
+        monkeypatch, archive_dir, capsys):
+    # a quota answer is final for the run (HAZARD 1b), not a broken source;
+    # failing the step would page the human for the shared endpoint's load
+    monkeypatch.setattr(portwatch.urllib.request, "urlopen",
+                        lambda req, timeout=30: FakeResponse(QUOTA_ERROR))
+    portwatch.main(["archive"])
+    assert "skipped" in capsys.readouterr().out
+    assert not archive_dir.exists()
+
+
+class FakeResponse:
+    def __init__(self, body):
+        self.body = json.dumps(body).encode()
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_daily_archives_portwatch_before_the_judgment_step():
+    daily = (pathlib.Path(__file__).parents[2] / "bin" / "daily.sh").read_text()
+    step = daily.index("run_step portwatch")
+    assert "kalshi/portwatch.py archive" in daily[step:daily.index("\n", step)]
+    assert step < daily.index("run_step claude")
