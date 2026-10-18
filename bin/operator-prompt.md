@@ -44,8 +44,7 @@ PR and a note in the run log so tomorrow's run can pick it up.
    WHY this change addresses it, and HOW you verified it.
 5. Do NOT touch these paths (the outer script refuses to auto-merge them,
    and you should not change them at all): `.github/workflows/**`,
-   `bin/operator*`, and the money code `kalshi/paper*.py`,
-   `kalshi/shadow*.py`, `kalshi/execute*.py`. If an item genuinely requires it, open the PR, note
+   `bin/operator*`. If an item genuinely requires it, open the PR, note
    prominently that it needs a human, and move on.
 6. Never edit trading guardrail constants (trades/day, position, exposure
    caps in `kalshi/paper.py`) or anything that moves money rules — flag
