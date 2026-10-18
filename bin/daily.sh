@@ -165,6 +165,9 @@ run_step aaa     python3 kalshi/aaa.py
 # Hormuz settles on PortWatch's FIRST print, which it later revises; one
 # query a day journals both, well before the judgment step spends quota.
 run_step portwatch python3 kalshi/portwatch.py archive
+# Wholesale RBOB/ULSD settles, journaled with revisions so a day's bar read
+# can be cross-checked the next morning (10/17: 10/16 bar "unverified").
+run_step futures python3 kalshi/futures.py archive
 # Same for the rain/high-temp settlement source: NWS keeps ~7 days of CLI
 # reports, and gap #3 (Oct 2026) outlived the 10/1 finals.
 run_step wx      python3 kalshi/wx.py archive
