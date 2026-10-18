@@ -8,6 +8,7 @@
       "Bash(python3 kalshi/kalshi.py *)",
       "Bash(python3 kalshi/wx.py *)",
       "Bash(python3 kalshi/rainfreeze.py *)",
+      "Bash(python3 kalshi/highfreeze.py *)",
       "Bash(python3 kalshi/portwatch.py *)",
       "Bash(python3 kalshi/votehub.py *)",
       "Bash(python3 kalshi/bls.py *)",

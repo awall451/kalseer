@@ -216,3 +216,11 @@ def test_futures_cli_grant_present():
     Bash grant or the judgment run stops for approval mid-research."""
     allow = load_allow(JUDGMENT)
     assert "Bash(python3 kalshi/futures.py *)" in allow
+
+
+def test_highfreeze_cli_grant_present():
+    """lax-santa-ana-heat (10/17): no grid pulled -> no RAW pre-reg. The
+    pipeline's highfreeze step freezes it; the judgment step reads it back
+    with `python3 kalshi/highfreeze.py score`, which needs its own grant."""
+    allow = load_allow(JUDGMENT)
+    assert "Bash(python3 kalshi/highfreeze.py *)" in allow
