@@ -55,15 +55,16 @@ $(cat "$WORK/bin/operator-prompt.md")" \
 
 # --- deterministic merge gate ----------------------------------------------
 # Auto-merge operator PRs when CI is green, UNLESS they touch paths that
-# guard the loop itself (its own charter, or the CI that gates the merges).
+# guard the loop itself (its own charter, or the CI that gates the merges),
+# or that move money (the paper ledger + guardrails, shadow/live execution).
 # Those stay open for a human.
-PROTECTED='^(\.github/workflows/|bin/operator)'
+PROTECTED='^(\.github/workflows/|bin/operator|kalshi/(paper|shadow|execute)[^/]*\.py$)'
 opened=0; merged=0; held=0; red=0
 for pr in $(gh pr list --label operator --state open --json number -q '.[].number'); do
   opened=$((opened+1))
   if gh pr diff "$pr" --name-only | grep -qE "$PROTECTED"; then
     echo "--- PR #$pr touches protected paths; leaving open for review"
-    gh pr comment "$pr" -b "operator: touches protected paths (charter/CI) — auto-merge skipped, needs a human." >/dev/null || true
+    gh pr comment "$pr" -b "operator: touches protected paths (charter/CI/money code) — auto-merge skipped, needs a human." >/dev/null || true
     held=$((held+1)); continue
   fi
   if gh pr checks "$pr" --watch --fail-fast; then

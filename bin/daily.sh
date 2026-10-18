@@ -188,6 +188,9 @@ if [ ! -f "$BRIEF" ] && [ -z "$FAILED_STEP" ]; then
   FAILED_STEP="claude"
 fi
 
+# Shadow execution: reconcile resting shadow orders against public prints and
+# publish shadow.json (paper vs what real limit orders would have filled).
+run_step shadow  python3 kalshi/shadow.py reconcile
 run_step publish python3 kalshi/publish.py
 
 # Spoken brief (optional; speak.py no-ops without edge-tts installed).

@@ -217,7 +217,9 @@ def test_get_orderbook_reads_the_fixed_point_payload(monkeypatch):
 
     monkeypatch.setattr(kalshi, "_get", fake_get)
     assert kalshi.get_orderbook("T", depth=5) == BOOK["orderbook_fp"]
-    assert seen == {"path": "/markets/T/orderbook", "depth": 5}
+    # tries is passed through since shadow.py reads the book with a short
+    # retry budget (a shadow fetch must not stall a paper trade); default 4.
+    assert seen == {"path": "/markets/T/orderbook", "depth": 5, "tries": 4}
 
 
 def test_fmt_book_buy_yes_ladder_comes_from_no_bids_best_first():

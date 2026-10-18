@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import StatTiles from './lib/StatTiles.svelte'
   import PositionsBoard from './lib/PositionsBoard.svelte'
+  import ShadowPanel from './lib/ShadowPanel.svelte'
   import EquityChart from './lib/EquityChart.svelte'
   import CalibrationChart from './lib/CalibrationChart.svelte'
   import TradeCard from './lib/TradeCard.svelte'
@@ -188,6 +189,8 @@
     <StatTiles stats={agg.stats} />
 
     <PositionsBoard open={agg.open_positions ?? []} settled={agg.recent_settled ?? []} {slugs} />
+
+    <ShadowPanel {slugs} />
 
     <div class="charts">
       <section class="card">

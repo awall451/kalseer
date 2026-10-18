@@ -21,6 +21,7 @@ import pathlib
 import sys
 
 import kalshi
+import shadow
 
 # All mutable state (ledger, briefs, published JSON) lives outside the repo so
 # the engine stays data-free; point KALSEER_DATA_DIR at your data checkout.
@@ -103,6 +104,9 @@ def cmd_open(ticker, side, price, contracts, fair_value, reasoning):
         "reasoning": reasoning,
         "opened": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
+    # Shadow the order a live executor would send (never sends; see shadow.py).
+    pos["shadow_id"] = shadow.record("open", ticker, side, price, contracts,
+                                     f"{ticker}@{pos['opened']}")
     p["positions"].append(pos)
     save(p)
     print(f"OPEN {side.upper()} {contracts}x {ticker} @ {price:.2f} "
@@ -139,6 +143,8 @@ def cmd_close(ticker, price, reasoning):
         "settled": now,
         "recorded": now,
     })
+    pos["exit_shadow_id"] = shadow.record("close", ticker, pos["side"], price,
+                                          pos["contracts"], f"{ticker}@{now}")
     with CLOSED.open("a") as f:
         f.write(json.dumps(pos) + "\n")
     save(p)
