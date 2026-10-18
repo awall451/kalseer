@@ -176,14 +176,23 @@ def test_summary_compares_paper_and_shadow_pnl(ledger, monkeypatch):
     assert pub["summary"]["filled"] == 10
 
 
-# --- the operator may never auto-merge money code ---
+# --- operator merge gate ---
+# Money paths are deliberately auto-mergeable while trading is paper + shadow
+# only (owner's call, 2026-10-18). This test pins that, so re-protecting them
+# before live money is a conscious change here, not an accident.
 
-def test_operator_merge_gate_protects_money_paths():
+def _gate_matches(path):
     text = (REPO / "bin" / "operator.sh").read_text()
     pattern = next(l for l in text.splitlines() if l.startswith("PROTECTED="))
     pattern = pattern.split("=", 1)[1].strip("'")
-    for path in ("kalshi/paper.py", "kalshi/shadow.py", "kalshi/execute.py",
-                 ".github/workflows/ci.yml", "bin/operator.sh"):
-        assert subprocess.run(["grep", "-qE", pattern], input=path, text=True).returncode == 0, path
-    assert subprocess.run(["grep", "-qE", pattern], input="kalshi/wx.py",
-                          text=True).returncode != 0
+    return subprocess.run(["grep", "-qE", pattern], input=path, text=True).returncode == 0
+
+
+def test_operator_merge_gate_protects_the_charter_and_ci():
+    for path in (".github/workflows/ci.yml", "bin/operator.sh", "bin/operator-prompt.md"):
+        assert _gate_matches(path), path
+
+
+def test_money_paths_auto_merge_during_shadow_mode():
+    for path in ("kalshi/paper.py", "kalshi/shadow.py", "kalshi/wx.py"):
+        assert not _gate_matches(path), path
