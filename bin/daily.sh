@@ -174,6 +174,8 @@ run_step wx      python3 kalshi/wx.py archive
 # The rain family's mechanical legs (NWS PoP + board mid), frozen before the
 # judgment step so a run that skips the grids can't cost a scored day.
 run_step rainfreeze python3 kalshi/rainfreeze.py freeze
+# Same for KXHIGH: the NWS grid high + bucket board (Santa Ana ledger, 10/17).
+run_step highfreeze python3 kalshi/highfreeze.py freeze
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
