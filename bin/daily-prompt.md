@@ -38,6 +38,11 @@ approval-blocked (proven live 9/27).
    specific enough that tomorrow-you can act on it without redoing the work:
    the verified data series so far, what you predicted, what actually
    happened, and what you concluded. See "Measure yourself" below.
+   To edit it, Write a JSON patch to `$DATA/watchlist-patch.json` and run
+   `python3 kalshi/watchlist.py apply $DATA/watchlist-patch.json` (format in
+   `python3 kalshi/watchlist.py`; `show [ID]` reads it). It checks every id
+   and date first, backs up the morning file, and writes atomically, so no
+   more one-off `*_tmp.py` scripts that `json.dump` straight onto the file.
 2. Pick the 3–6 most promising candidates. Prioritize markets that settle on
    public primary data you can actually check:
    - AAA gas prices → gasprices.aaa.com (the literal settlement source).
