@@ -83,10 +83,10 @@ def get_series(series_ticker: str) -> dict:
     return _get(f"/series/{series_ticker}")["series"]
 
 
-def get_orderbook(ticker: str, depth: int = 8) -> dict:
+def get_orderbook(ticker: str, depth: int = 8, tries: int = 4) -> dict:
     """Resting bids per side as exact strings, worst to best:
     {"yes_dollars": [[price, qty], ...], "no_dollars": [...]}."""
-    return _get(f"/markets/{ticker}/orderbook", depth=depth)["orderbook_fp"]
+    return _get(f"/markets/{ticker}/orderbook", tries=tries, depth=depth)["orderbook_fp"]
 
 
 def get_markets(**params) -> list[dict]:

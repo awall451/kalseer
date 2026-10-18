@@ -120,6 +120,11 @@ approval-blocked (proven live 9/27).
 5. Open trades:
    `python3 kalshi/paper.py open TICKER yes|no PRICE CONTRACTS FAIR "reasoning"`
 
+   PRICE is the limit you would actually post. Each open/close is also
+   recorded as a shadow limit order and walked against the live book
+   (`kalshi/shadow.py`; nothing is sent) — a price the book doesn't offer
+   shows up there as an unfilled order, so name real, fillable prices.
+
    You may also exit an open position before settlement when its thesis is
    dead (new information, not price wobble):
    `python3 kalshi/paper.py close TICKER PRICE "reasoning"`
