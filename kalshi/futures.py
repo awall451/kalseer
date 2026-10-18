@@ -17,7 +17,10 @@ futures path instead of recorded as "driver unverified".
 Newest first, one row per trading day with the day-over-day change. Rows are
 dated by the exchange's trading day. 'latest' marks the newest bar, and
 before the ~14:30 ET settle that bar's close is the live price, not a
-settlement; the footer's last-trade time tells which. The front month rolls
+settlement; the footer's last-trade time tells which. A '# WARNING' line
+means the last-trade quote contradicts the bars (a different price for the
+same day, a quote older than the newest bar, or a price equal to an older
+day's close, as on 10/17); neither number is verified. The front month rolls
 mid-month, so a jump across a roll is a contract switch, not a move.
 Yahoo's close is its own feed, not the CME settlement file: cross-check one
 day against a quoted settle (FreightWaves: ULSD 4.9344 on 10/13) before
@@ -100,6 +103,30 @@ def _last_trade(meta: dict) -> str | None:
             f"{when:%Y-%m-%d %H:%M} {tz}")
 
 
+def _conflict(meta: dict, bars: list[tuple[str, float]]) -> str | None:
+    """A warning when the last-trade quote contradicts the daily bars."""
+    if "regularMarketTime" not in meta or "regularMarketPrice" not in meta:
+        return None
+    price = float(meta["regularMarketPrice"])
+    # same trading-day rule as the bars: the evening session counts forward
+    day = datetime.datetime.fromtimestamp(
+        meta["regularMarketTime"] + int(meta.get("gmtoffset", 0)) + 6 * 3600,
+        datetime.UTC).date().isoformat()
+    newest, close = bars[0]
+    if day < newest:
+        return (f"# WARNING: last trade {price:.4f} is dated {day}, older "
+                f"than the newest bar {newest} = {close:.4f}; the quote is "
+                "stale, cross-check a quoted settle")
+    if day > newest or abs(price - close) < 0.00005:
+        return None
+    msg = (f"# WARNING: last trade {price:.4f} disagrees with the {newest} "
+           f"bar {close:.4f}")
+    older = [d for d, c in bars[1:] if abs(price - c) < 0.00005]
+    if older:
+        msg += f"; it equals the {older[0]} close (a stale quote?)"
+    return msg + f" -> treat {newest} as unverified until a quoted settle"
+
+
 def main(argv: list[str]):
     if argv[:1] != ["closes"] or len(argv) < 2 or argv[1].startswith("--"):
         sys.exit(__doc__)
@@ -125,6 +152,9 @@ def main(argv: list[str]):
     footer = [f"# {label}: {len(bars)} daily bars, "
               f"latest {bars[0][0]} = {bars[0][1]:.4f}", _last_trade(meta)]
     print("; ".join(p for p in footer if p))
+    warning = _conflict(meta, bars)
+    if warning:
+        print(warning)
 
 
 if __name__ == "__main__":
