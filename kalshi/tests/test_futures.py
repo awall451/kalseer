@@ -179,3 +179,63 @@ def test_fetch_falls_back_to_query2_host(monkeypatch):
     monkeypatch.setattr(futures.urllib.request, "urlopen", fake_urlopen)
     assert futures._fetch("RB=F") == {"chart": {"result": []}}
     assert hosts == ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]
+
+
+# Brief 10/17: "futures.py shows a 10/16 ULSD bar of 4.8991 but a 'last trade
+# 4.7232' ... that second number equals the 10/12 settle" -> the judgment step
+# had to spot the contradiction by eye and marked the 10/16 settles
+# unverified. The tool must flag it itself, without picking a winner.
+
+def warnings(capsys):
+    return [line for line in capsys.readouterr().out.splitlines()
+            if line.startswith("# WARNING")]
+
+
+def oct17_ulsd(last):
+    return body("HO=F", [ts(12), ts(13), ts(14), ts(15), ts(16)],
+                [4.7232, 4.9344, 4.9274, 4.8456, 4.8991], last=last)
+
+
+def test_last_trade_disagreeing_with_its_days_bar_is_flagged(api, capsys):
+    api["response"] = oct17_ulsd(last=(4.7232, ts(16, 16) + 59 * 60))
+    futures.main(["closes", "ulsd"])
+    (warn,) = warnings(capsys)
+    assert "last trade 4.7232" in warn
+    assert "2026-10-16 bar 4.8991" in warn
+    assert "unverified" in warn
+
+
+def test_last_trade_equal_to_an_older_close_is_called_out(api, capsys):
+    api["response"] = oct17_ulsd(last=(4.7232, ts(16, 16) + 59 * 60))
+    futures.main(["closes", "ulsd"])
+    (warn,) = warnings(capsys)
+    assert "equals the 2026-10-12 close" in warn
+
+
+def test_disagreement_without_an_older_match_names_no_date(api, capsys):
+    api["response"] = oct17_ulsd(last=(4.6550, ts(16, 16)))
+    futures.main(["closes", "ulsd"])
+    (warn,) = warnings(capsys)
+    assert "equals the" not in warn
+
+
+def test_consistent_last_trade_prints_no_warning(api, capsys):
+    # fixture: bar 4.934400081634521, last trade 4.9344 the same day
+    futures.main(["closes", "ulsd"])
+    assert warnings(capsys) == []
+
+
+def test_last_trade_in_the_next_evening_session_is_not_a_conflict(api, capsys):
+    # 18:30 ET on 10/13 trades for 10/14, which has no daily bar yet
+    api["response"] = body("HO=F", [ts(12), ts(13)], [4.7232, 4.9344],
+                           last=(4.9500, ts(13, 18) + 30 * 60))
+    futures.main(["closes", "ulsd"])
+    assert warnings(capsys) == []
+
+
+def test_last_trade_older_than_the_newest_bar_is_flagged_stale(api, capsys):
+    api["response"] = oct17_ulsd(last=(4.8456, ts(15, 16)))
+    futures.main(["closes", "ulsd"])
+    (warn,) = warnings(capsys)
+    assert "dated 2026-10-15" in warn
+    assert "older than the newest bar 2026-10-16" in warn
