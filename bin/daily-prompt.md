@@ -109,8 +109,9 @@ approval-blocked (proven live 9/27).
    Yahoo symbol like `RBX26.NYM` reads one contract month). The newest bar
    is live until the ~14:30 ET settle; cross-check one day against a quoted
    settle (e.g. FreightWaves) before leaning on the levels. A `# WARNING`
-   line means Yahoo's last-trade quote contradicts the bars: that day is
-   unverified until a quoted settle or the next run's re-read agrees.
+   line means Yahoo's last-trade quote contradicts the bars, or the newest
+   bar repeats a recent close digit-for-digit (rows tagged `= <day> close`):
+   that day is unverified until a quoted settle or the next run's re-read agrees.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
