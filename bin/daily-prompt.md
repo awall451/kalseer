@@ -62,6 +62,9 @@ approval-blocked (proven live 9/27).
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math
+     (`python3 kalshi/rt.py pin PCT COUNT [--prev F/N]` pins the split;
+     `python3 kalshi/rt.py floor PCT COUNT T [--prev F/N]` adds the hard
+     floor/ceiling — straight rotten/fresh reviews until YES/NO "above T" can lose)
    - Econ data (CPI etc.) → Cleveland Fed nowcast and similar public nowcasts
    - Anything else → WebSearch for primary sources; ignore vibes and headlines
    To read boards, rules, and settlements precisely, use the CLI instead of
