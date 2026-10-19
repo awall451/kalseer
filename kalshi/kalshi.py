@@ -75,8 +75,9 @@ def get_market(ticker: str, tries: int = 4) -> dict:
     return _get(f"/markets/{ticker}", tries=tries)["market"]
 
 
-def get_event(event_ticker: str) -> dict:
-    return _get(f"/events/{event_ticker}", with_nested_markets=True)["event"]
+def get_event(event_ticker: str, tries: int = 4) -> dict:
+    return _get(f"/events/{event_ticker}", tries=tries,
+                with_nested_markets=True)["event"]
 
 
 def get_series(series_ticker: str) -> dict:
