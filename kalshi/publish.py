@@ -78,7 +78,14 @@ def title_map(tickers, hist) -> dict:
         if any(c in t for c in "*/ "):  # research notes, not real tickers
             continue
         try:
-            titles[t] = (kalshi.get_market(t, tries=1).get("title") or "").replace("*", "")
+            try:
+                title = kalshi.get_market(t, tries=1).get("title")
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+                # a pass logged on a whole ladder names the EVENT ticker
+                title = kalshi.get_event(t, tries=1).get("title")
+            titles[t] = (title or "").replace("*", "")
         except urllib.error.HTTPError as e:
             print(f"! title {t}: {e}")
             if e.code == 404:  # delisted for good — stop asking every run
