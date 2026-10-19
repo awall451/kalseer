@@ -28,7 +28,10 @@ before the ~14:30 ET settle that bar's close is the live price, not a
 settlement; the footer's last-trade time tells which. A '# WARNING' line
 means the last-trade quote contradicts the bars (a different price for the
 same day, a quote older than the newest bar, or a price equal to an older
-day's close, as on 10/17); neither number is verified. The front month rolls
+day's close, as on 10/17); neither number is verified. A row tagged
+'= <day> close' repeats a close from the last 10 sessions to the last digit
+(10/16 ULSD 4.7232 == 10/12, brief 10/18) and warns when it is the newest
+bar — a recycled number, unverified until a quoted settle. The front month rolls
 mid-month, so a jump across a roll is a contract switch, not a move.
 Yahoo's close is its own feed, not the CME settlement file: cross-check one
 day against a quoted settle (FreightWaves: ULSD 4.9344 on 10/13) before
@@ -230,6 +233,19 @@ def _conflict(meta: dict, bars: list[tuple[str, float]]) -> str | None:
     return msg + f" -> treat {newest} as unverified until a quoted settle"
 
 
+REPEAT_WINDOW = 10  # sessions back a digit-for-digit repeat is suspicious
+
+
+def _repeats(bars: list[tuple[str, float]], i: int) -> str | None:
+    """The older day within REPEAT_WINDOW sessions whose close bar i repeats
+    to the last digit (10/16 ULSD 4.7232 == 10/12, brief 10/18)."""
+    close = bars[i][1]
+    for day, older in bars[i + 1:i + 1 + REPEAT_WINDOW]:
+        if abs(close - older) < 0.00005:
+            return day
+    return None
+
+
 def main(argv: list[str]):
     if argv[:1] in (["archive"], ["first"]):
         return _main_archive(argv)
@@ -252,6 +268,9 @@ def main(argv: list[str]):
             parts.append(f"d/d {close - bars[i + 1][1]:+.4f}")
         if i == 0:
             parts.append("latest")
+        repeated = _repeats(bars, i)
+        if repeated:
+            parts.append(f"= {repeated} close")
         print("  ".join(parts))
     label = f"{name} = {symbol}" if name in ALIASES else symbol
     footer = [f"# {label}: {len(bars)} daily bars, "
@@ -260,6 +279,11 @@ def main(argv: list[str]):
     warning = _conflict(meta, bars)
     if warning:
         print(warning)
+    repeated = _repeats(bars, 0)
+    if repeated:
+        print(f"# WARNING: the {bars[0][0]} bar {bars[0][1]:.4f} repeats the "
+              f"{repeated} close to the last digit (a stale or recycled bar?) "
+              f"-> treat {bars[0][0]} as unverified until a quoted settle")
 
 
 if __name__ == "__main__":
