@@ -73,6 +73,8 @@ def apis(tmp_path, monkeypatch):
     monkeypatch.setattr(highfreeze.wx, "_get", nws)
     monkeypatch.setattr(highfreeze.kalshi, "get_event", event)
     monkeypatch.setattr(highfreeze, "JOURNAL", tmp_path / "high-freeze.jsonl")
+    monkeypatch.setattr(highfreeze, "CITIES", {"LAX": ("LOX", 148, 41),
+                                               "NY": ("OKX", 33, 37)})
     return calls
 
 
@@ -199,3 +201,22 @@ def test_usage(apis):
     with pytest.raises(SystemExit) as e:
         highfreeze.main([])
     assert "freeze" in str(e.value.code)
+
+
+# KXHIGHTDC / KXHIGHTOKC settle on CLIDCA / CLIOKC ("the maximum temperature
+# recorded at Washington DC (CLIDCA) ..."), the same CLI stations the rain
+# family's KXRAIN DC / OKC settle on — so the grids rainfreeze already
+# freezes for those stations are the grids for the high boards too, and the
+# temperature ledger grows without an api.weather.gov /points lookup.
+def test_dc_and_okc_highs_reuse_the_rain_family_grids():
+    import rainfreeze
+    assert highfreeze.CITIES["TDC"] == rainfreeze.CITIES["DC"]
+    assert highfreeze.CITIES["TOKC"] == rainfreeze.CITIES["OKC"]
+    assert highfreeze.CITIES["LAX"] == ("LOX", 148, 41)
+    assert highfreeze.CITIES["NY"] == ("OKX", 33, 37)
+
+
+def test_new_city_keys_build_the_live_event_tickers():
+    assert highfreeze.event_ticker("TDC", "2026-10-19") == "KXHIGHTDC-26OCT19"
+    assert (highfreeze.event_ticker("TOKC", "2026-10-19")
+            == "KXHIGHTOKC-26OCT19")

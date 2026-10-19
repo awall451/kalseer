@@ -36,8 +36,10 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
 JOURNAL = DATA / "wx" / "high-freeze.jsonl"
 
 # KXHIGH<city> -> NWS grid (LAX: lax-santa-ana-heat; NY: Central Park, the
-# grid the rain family uses for KXRAIN NYC)
-CITIES = {"LAX": ("LOX", 148, 41), "NY": ("OKX", 33, 37)}
+# grid the rain family uses for KXRAIN NYC; TDC / TOKC settle on CLIDCA /
+# CLIOKC, the stations of KXRAIN DC / OKC, so they reuse rainfreeze's grids)
+CITIES = {"LAX": ("LOX", 148, 41), "NY": ("OKX", 33, 37),
+          "TDC": ("LWX", 97, 69), "TOKC": ("OUN", 94, 90)}
 SD = 3.0
 
 
