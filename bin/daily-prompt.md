@@ -58,7 +58,13 @@ approval-blocked (proven live 9/27).
      mechanical RW / MOM / DRIFT forecasts over every journaled day (MAE,
      wins) and prints tomorrow's forecasts plus the drift bar — use it
      instead of re-deriving the race by hand; `--settled` adds the
-     KXAAAGASD/KXDIESELD finals for days the journal lacks (back to August)
+     KXAAAGASD/KXDIESELD finals for days the journal lacks (back to August).
+     The pipeline's `fuelfreeze` step freezes every open KXAAAGASD/W/M and
+     KXDIESELD/W strike's bid/ask plus RW / MOM / DRIFT P(print > strike)
+     (k-print normal) into `$DATA/aaa/fuel-freeze.jsonl`, and its log lines
+     list board-vs-model divergences (>= 0.25). Those are your divergence
+     datums, already frozen: `python3 kalshi/fuelfreeze.py score [--days N]`
+     prints per-event Brier and the board-vs-model divergence tally
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math

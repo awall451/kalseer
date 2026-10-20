@@ -176,6 +176,9 @@ run_step wx      python3 kalshi/wx.py archive
 run_step rainfreeze python3 kalshi/rainfreeze.py freeze
 # Same for KXHIGH: the NWS grid high + bucket board (Santa Ana ledger, 10/17).
 run_step highfreeze python3 kalshi/highfreeze.py freeze
+# And for the fuel boards: RW/MOM/DRIFT odds per strike off today's AAA print,
+# so board-vs-model "divergence datums" are frozen, not hand-logged (10/19).
+run_step fuelfreeze python3 kalshi/fuelfreeze.py freeze
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
