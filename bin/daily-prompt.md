@@ -187,7 +187,12 @@ Carry all of this in the relevant watchlist item:
   grid forecast, the consensus, the last print), and the market's implied
   centre. A number recorded after the fact is worthless. If you failed to
   record the inputs, say so plainly and treat the day as unscorable rather
-  than reconstructing a flattering version.
+  than reconstructing a flattering version. For any Kalshi-settled strike
+  ladder, also freeze it with `python3 kalshi/prereg.py add EVENT MINE
+  57=0.42 60=0.07 …`. It journals your P(YES) with the board's exact bid/ask
+  at that moment and refuses closed markets or a second MINE for the event.
+  `python3 kalshi/prereg.py score [PREFIX]` then prints the leg's Brier sum
+  against the frozen board, so don't recompute it by hand.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.
