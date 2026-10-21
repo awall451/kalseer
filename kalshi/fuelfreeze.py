@@ -16,7 +16,9 @@ models stretched over k prints): RW base, MOM base + k x the last change,
 DRIFT base + k x the mean of the last --window (5) changes. Each model's P(print
 > strike) is a normal with sd = sample sd of those changes x sqrt(k), floored
 at 0.05c. Every strike keeps its exact bid/ask strings. Strikes where the board
-mid and a model differ by >= 0.25 are printed as divergences. Events the
+mid and a model differ by >= 0.25 are printed as divergences; a strike with
+no quotes or a spread over 0.20 has no board mid, so it is never a
+divergence and never enters the BOARD Brier. Events the
 journal already settles (k <= 0) are skipped. Exit 1 only if no series
 answered at all.
 
@@ -49,6 +51,7 @@ LEGS = ("BOARD",) + MODELS
 WINDOW = 5
 SD_FLOOR = 0.0005  # dollars: 0.05c
 GAP = 0.25
+MAX_SPREAD = Decimal("0.20")  # wider books are no board price
 
 
 def settle_day(event: str) -> str:
@@ -74,9 +77,14 @@ def model(prices: dict, base_day: str, k: int, window: int = WINDOW) -> dict:
 
 
 def _mid(s: dict) -> float | None:
+    """The board's price, or None when the book is no board: no quotes at
+    all (0.0000/0.0000) or a spread wider than MAX_SPREAD (0.01/0.99)."""
     if not (s.get("yes_bid") and s.get("yes_ask")):
         return None
-    return (float(s["yes_bid"]) + float(s["yes_ask"])) / 2
+    bid, ask = Decimal(s["yes_bid"]), Decimal(s["yes_ask"])
+    if not bid < ask <= bid + MAX_SPREAD:
+        return None
+    return float(bid + ask) / 2
 
 
 def freeze() -> tuple[list[str], list[str]]:
