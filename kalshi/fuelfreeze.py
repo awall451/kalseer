@@ -24,6 +24,13 @@ answered at all.
 settled print (Kalshi's expiration_value), each leg's mean per-strike Brier,
 and a board-vs-model tally over divergent strikes, where whichever is
 closer to the outcome wins.
+
+EMP is a fourth, non-parametric leg: P(print > strike) is the share of every
+k-print change in the trailing EMP_DAYS (90) that lands base + change above
+the strike, smoothed (n_above + 0.5) / (n + 1). History is Kalshi's settled
+KXAAAGASD / KXDIESELD prints (fuelscore.settled_prints) with the journal over
+them; under EMP_MIN (10) changes EMP is None. It carries the shock weeks the
+5-change trend sd never sees (brief 10/20: "1.3c sd is far too tight").
 """
 
 import datetime as dt
@@ -45,7 +52,10 @@ SERIES = {"KXAAAGASD": "regular", "KXAAAGASW": "regular",
           "KXAAAGASM": "regular", "KXDIESELD": "diesel",
           "KXDIESELW": "diesel"}
 MODELS = fuelscore.MODELS
-LEGS = ("BOARD",) + MODELS
+SCORED = MODELS + ("EMP",)
+LEGS = ("BOARD",) + SCORED
+EMP_DAYS = 90  # trailing days of k-print changes behind EMP
+EMP_MIN = 10   # fewer changes than this: no EMP odds
 WINDOW = 5
 SD_FLOOR = 0.0005  # dollars: 0.05c
 GAP = 0.25
@@ -73,6 +83,41 @@ def model(prices: dict, base_day: str, k: int, window: int = WINDOW) -> dict:
             "sd": max(sd, SD_FLOOR) * math.sqrt(k)}
 
 
+def history(grade: str) -> dict:
+    """{date: print}: Kalshi's settled daily prints (back past the journal's
+    start), the journal over them. A failed fetch leaves the journal."""
+    try:
+        out = dict(fuelscore.settled_prints(grade))
+    except Exception as e:
+        print(f"fuelfreeze: {grade}: settled history failed: {e}",
+              file=sys.stderr)
+        out = {}
+    out.update(fuelscore.series(grade))
+    return out
+
+
+def empirical(prices: dict, base_day: str, k: int,
+              days: int | None = None) -> list[Decimal]:
+    """Every k-print change starting in the trailing `days` (EMP_DAYS)
+    before base_day, both ends printed."""
+    base = dt.date.fromisoformat(base_day)
+    out = []
+    for back in range(k, (days or EMP_DAYS) + 1):
+        a = (base - dt.timedelta(days=back)).isoformat()
+        b = (base - dt.timedelta(days=back - k)).isoformat()
+        if a in prices and b in prices:
+            out.append(prices[b] - prices[a])
+    return out
+
+
+def _p_emp(strike, base: Decimal, changes: list) -> float | None:
+    """Share of changes landing above the strike, smoothed off 0 and 1."""
+    if strike is None or len(changes) < EMP_MIN:
+        return None
+    above = sum(base + c > Decimal(str(strike)) for c in changes)
+    return (above + 0.5) / (len(changes) + 1)
+
+
 def _mid(s: dict) -> float | None:
     if not (s.get("yes_bid") and s.get("yes_ask")):
         return None
@@ -83,6 +128,7 @@ def freeze() -> tuple[list[str], list[str]]:
     """Append today's freeze per open event. Returns (events, failed series)."""
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     journals = {g: dict(fuelscore.series(g)) for g in set(SERIES.values())}
+    hist = {g: history(g) for g in sorted(journals)}
     out, failed = [], []
     for series, grade in SERIES.items():
         try:
@@ -105,12 +151,14 @@ def freeze() -> tuple[list[str], list[str]]:
             if k <= 0:
                 continue
             fit = model(prices, base_day, k)
+            changes = empirical(hist[grade], base_day, k)
             strikes = []
             for m in sorted(ms, key=lambda m: m.get("floor_strike") or 0):
                 floor = m.get("floor_strike")
                 p = {name: (None if c is None or floor is None else
                             _p_above(floor, float(c), fit["sd"]))
                      for name, c in fit["centre"].items()}
+                p["EMP"] = _p_emp(floor, prices[base_day], changes)
                 strikes.append({"ticker": m.get("ticker"), "floor": floor,
                                 "yes_bid": m.get("yes_bid_dollars"),
                                 "yes_ask": m.get("yes_ask_dollars"), "p": p})
@@ -122,7 +170,7 @@ def freeze() -> tuple[list[str], list[str]]:
                                    for n, c in fit["centre"].items()},
                         "sd": None if fit["sd"] is None
                         else round(fit["sd"] * 100, 4),
-                        "strikes": strikes})
+                        "emp_n": len(changes), "strikes": strikes})
     if out:
         JOURNAL.parent.mkdir(parents=True, exist_ok=True)
         with JOURNAL.open("a") as f:
@@ -167,7 +215,7 @@ def score(days: int = 14):
     since = (dt.date.fromisoformat(rows[-1]["date"])
              - dt.timedelta(days=days)).isoformat()
     briers = {leg: [] for leg in LEGS}
-    tally = {n: [0, 0] for n in MODELS}
+    tally = {n: [0, 0] for n in SCORED}
     lines = []
     for r in rows:
         if r["date"] < since:
@@ -192,7 +240,7 @@ def score(days: int = 14):
             mid = _mid(s)
             if mid is not None:
                 legs["BOARD"].append((mid - y) ** 2)
-            for n in MODELS:
+            for n in SCORED:
                 p = s["p"].get(n)
                 if p is None:
                     continue

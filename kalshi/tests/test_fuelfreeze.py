@@ -78,6 +78,8 @@ def apis(tmp_path, monkeypatch):
         return EVENTS[ticker]
     monkeypatch.setattr(fuelfreeze.kalshi, "get_markets", markets)
     monkeypatch.setattr(fuelfreeze.kalshi, "get_event", event)
+    monkeypatch.setattr(fuelfreeze.kalshi, "settled_markets",
+                        lambda *a, **kw: [])
     EVENTS.clear()
     return calls
 
