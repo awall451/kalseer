@@ -18,7 +18,9 @@ empty and the other still freezes; exit 1 only if no city answered at all.
 the settled max (Kalshi's expiration_value, the official number whichever
 source the series names), the grid's error, and for RAW (normal around the
 grid high, sd 3F, integer-degree bucket edges) and MKT (bucket mids) the
-probability on the winning bucket and the all-bucket Brier.
+probability on the winning bucket and the all-bucket Brier. A bucket with an
+empty or wider-than-0.20 book has no mid (kalshi.board_mid), so that day has
+no MKT leg.
 """
 
 import datetime as dt
@@ -139,9 +141,7 @@ def frozen() -> list[dict]:
 
 
 def _mid(b: dict) -> float | None:
-    if not (b.get("yes_bid") and b.get("yes_ask")):
-        return None
-    return (float(b["yes_bid"]) + float(b["yes_ask"])) / 2
+    return kalshi.board_mid(b.get("yes_bid"), b.get("yes_ask"))
 
 
 def _leg(name: str, probs: list[float], won: list[bool]) -> tuple[str, float]:
