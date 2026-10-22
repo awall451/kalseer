@@ -25,7 +25,10 @@ answered at all.
 `score` reads the FIRST row per event (binding) and prints newest first: the
 settled print (Kalshi's expiration_value), each leg's mean per-strike Brier,
 and a board-vs-model tally over divergent strikes, where whichever is
-closer to the outcome wins.
+closer to the outcome wins. The summary's n is every settled event; a leg
+scored on fewer (BOARD, when books were empty) shows its own (nK). Those
+means run over different strikes, so a paired line scores each model and
+BOARD on the same board-priced strikes (mK of them).
 
 EMP is a fourth, non-parametric leg: P(print > strike) is the share of every
 k-print change in the trailing EMP_DAYS (90) that lands base + change above
@@ -224,6 +227,8 @@ def score(days: int = 14):
              - dt.timedelta(days=days)).isoformat()
     briers = {leg: [] for leg in LEGS}
     tally = {n: [0, 0] for n in SCORED}
+    paired = {n: [0.0, 0.0, 0] for n in SCORED}  # model, board, strikes
+    settled = 0
     lines = []
     for r in rows:
         if r["date"] < since:
@@ -253,10 +258,15 @@ def score(days: int = 14):
                 if p is None:
                     continue
                 legs[n].append((p - y) ** 2)
+                if mid is not None:
+                    paired[n][0] += (p - y) ** 2
+                    paired[n][1] += (mid - y) ** 2
+                    paired[n][2] += 1
                 if mid is not None and abs(mid - p) >= GAP:
                     gap = abs(mid - y) - abs(p - y)
                     if gap:
                         tally[n][gap > 0] += 1
+        settled += 1
         actual = Decimal(values[0]).quantize(Decimal("0.0001"))
         parts = [r["date"], r["event"], f"{actual}", f"k{r['k']}"]
         for leg in LEGS:
@@ -267,11 +277,17 @@ def score(days: int = 14):
         lines.append("  ".join(parts))
     for line in reversed(lines):
         print(line)
-    n = len(briers["BOARD"])
-    if n:
-        print(f"# n={n} settled events (last {days}d), mean per-strike Brier: "
-              + "  ".join(f"{leg} {sum(v) / len(v):.4f}"
-                          for leg, v in briers.items() if v))
+    if settled:
+        print(f"# n={settled} settled events (last {days}d), mean per-strike "
+              "Brier: " + "  ".join(
+                  f"{leg} {sum(v) / len(v):.4f}"
+                  + ("" if len(v) == settled else f" (n{len(v)})")
+                  for leg, v in briers.items() if v))
+        pairs = [f"{m} {mb / k:.4f} vs BOARD {bb / k:.4f} (m{k})"
+                 for m, (mb, bb, k) in paired.items() if k]
+        if pairs:
+            print("# same strikes, board-priced only (per-strike Brier): "
+                  + "  ".join(pairs))
         print(f"# divergences (|board - model| >= {GAP}, closer to the "
               "outcome wins): " + "  ".join(
                   f"board-{m} {w}-{l}" for m, (w, l) in tally.items()))
