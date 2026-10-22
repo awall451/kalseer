@@ -33,6 +33,11 @@ the strike, smoothed (n_above + 0.5) / (n + 1). History is Kalshi's settled
 KXAAAGASD / KXDIESELD prints (fuelscore.settled_prints) with the journal over
 them; under EMP_MIN (10) changes EMP is None. It carries the shock weeks the
 5-change trend sd never sees (brief 10/20: "1.3c sd is far too tight").
+
+EMPD is EMP centred on DRIFT: the same changes less their mean, plus DRIFT's
+k-print move (None without a DRIFT centre). EMP carries the history's own
+drift (September's diesel run-up, in a 9-day gas decline), so a board-EMP
+loss can be the tails or the drift; EMPD keeps the tails and drops the drift.
 """
 
 import datetime as dt
@@ -54,7 +59,7 @@ SERIES = {"KXAAAGASD": "regular", "KXAAAGASW": "regular",
           "KXAAAGASM": "regular", "KXDIESELD": "diesel",
           "KXDIESELW": "diesel"}
 MODELS = fuelscore.MODELS
-SCORED = MODELS + ("EMP",)
+SCORED = MODELS + ("EMP", "EMPD")
 LEGS = ("BOARD",) + SCORED
 EMP_DAYS = 90  # trailing days of k-print changes behind EMP
 EMP_MIN = 10   # fewer changes than this: no EMP odds
@@ -121,6 +126,15 @@ def _p_emp(strike, base: Decimal, changes: list) -> float | None:
     return (above + 0.5) / (len(changes) + 1)
 
 
+def _p_empd(strike, base: Decimal, changes: list,
+            shift: Decimal | None) -> float | None:
+    """EMP's changes de-meaned and moved by `shift` (DRIFT's k-print move)."""
+    if shift is None or len(changes) < EMP_MIN:
+        return None
+    mean = sum(changes) / len(changes)
+    return _p_emp(strike, base + shift - mean, changes)
+
+
 def _mid(s: dict) -> float | None:
     """The board's price, or None when the book is no board: no quotes at
     all (0.0000/0.0000) or a spread wider than MAX_SPREAD (0.01/0.99)."""
@@ -167,6 +181,10 @@ def freeze() -> tuple[list[str], list[str]]:
                             _p_above(floor, float(c), fit["sd"]))
                      for name, c in fit["centre"].items()}
                 p["EMP"] = _p_emp(floor, prices[base_day], changes)
+                drift = fit["centre"]["DRIFT"]
+                p["EMPD"] = _p_empd(floor, prices[base_day], changes,
+                                    None if drift is None
+                                    else drift - prices[base_day])
                 strikes.append({"ticker": m.get("ticker"), "floor": floor,
                                 "yes_bid": m.get("yes_bid_dollars"),
                                 "yes_ask": m.get("yes_ask_dollars"), "p": p})
