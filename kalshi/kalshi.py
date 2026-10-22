@@ -129,6 +129,21 @@ def round_trip_cost(price: float) -> float:
     return taker_fee(price, 1)
 
 
+MAX_SPREAD = Decimal("0.20")  # wider books are no board price
+
+
+def board_mid(bid, ask, max_spread: Decimal = MAX_SPREAD) -> float | None:
+    """A book's mid from its exact bid/ask strings, or None when it is no
+    board: missing, empty ("0.0000"/"0.0000" is truthy), crossed, or wider
+    than max_spread ("0.0100"/"0.9900"). Same rule as fuelfreeze._mid (#77)."""
+    if not (bid and ask):
+        return None
+    b, a = Decimal(str(bid)), Decimal(str(ask))
+    if not b < a <= b + max_spread:
+        return None
+    return float(b + a) / 2
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def _s(m, key) -> str:

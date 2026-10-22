@@ -139,7 +139,7 @@ def score(days: int = 14):
         legs = {}
         if r.get("raw") is not None:
             legs["RAW"] = Decimal(str(r["raw"]))
-        if r.get("yes_bid") and r.get("yes_ask"):
+        if kalshi.board_mid(r.get("yes_bid"), r.get("yes_ask")) is not None:
             legs["MKT"] = (Decimal(r["yes_bid"]) + Decimal(r["yes_ask"])) / 2
         parts = [r["date"], r["city"], result if result in ("yes", "no")
                  else "pending"]

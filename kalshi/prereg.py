@@ -86,9 +86,11 @@ def add(event: str, leg: str, probs: dict[str, float],
 
 
 def _mid(quote) -> float | None:
-    if not quote or not (quote[0] and quote[1]):
+    """None (scored as 0.5) for an unpriced market: no quote, an empty
+    0.0000/0.0000 book, or one wider than kalshi.MAX_SPREAD."""
+    if not quote:
         return None
-    return (float(quote[0]) + float(quote[1])) / 2
+    return kalshi.board_mid(quote[0], quote[1])
 
 
 def score(days: int = 30, prefix: str = ""):
