@@ -198,7 +198,10 @@ Carry all of this in the relevant watchlist item:
   57=0.42 60=0.07 …`. It journals your P(YES) with the board's exact bid/ask
   at that moment and refuses closed markets or a second MINE for the event.
   `python3 kalshi/prereg.py score [PREFIX]` then prints the leg's Brier sum
-  against the frozen board, so don't recompute it by hand.
+  against the frozen board, so don't recompute it by hand. A point estimate
+  of a settled value (the daily gas/diesel MINE) freezes with
+  `python3 kalshi/prereg.py point EVENT MINE 4.2530`; for KXAAAGASD/KXDIESELD
+  `score` races it against fuelscore's RW / MOM / DRIFT for you.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.
