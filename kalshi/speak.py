@@ -22,6 +22,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 
 import paper
 
@@ -95,6 +96,14 @@ def pronounce(text: str) -> str:
     return re.sub(r"\bkalshi\b", SPOKEN_KALSHI, text, flags=re.I)
 
 
+# The edge service intermittently answers with NoAudioReceived for text it
+# renders fine minutes later (2026-10-23: the brief failed twice, then the
+# identical text succeeded). Retry in-process before giving up; a client too
+# old for the service fails every try and falls through to daily.sh's
+# upgrade-and-retry.
+RETRY_WAITS = (5, 20, 60)
+
+
 def synth(edge_tts, text: str, out: pathlib.Path):
     """Render text to out. edge-tts creates its output file before the
     network can fail, and the dashboard shows a player whenever the mp3
@@ -103,7 +112,15 @@ def synth(edge_tts, text: str, out: pathlib.Path):
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
     try:
-        asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(tmp)))
+        for wait in (*RETRY_WAITS, None):
+            try:
+                asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(tmp)))
+                break
+            except Exception as e:
+                if wait is None:
+                    raise
+                print(f"! tts: {type(e).__name__}: {e}; retrying in {wait}s", file=sys.stderr)
+                time.sleep(wait)
         os.replace(tmp, out)
     finally:
         tmp.unlink(missing_ok=True)
