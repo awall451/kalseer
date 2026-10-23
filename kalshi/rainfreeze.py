@@ -16,9 +16,17 @@ of the daytime period that starts on the market's local date (null PoP is
 0); None once that period has rolled off. A leg that fails is recorded as
 None and the other still freezes; exit 1 only if no city answered at all.
 
+Each row also carries `next`: tomorrow's market (listed ~09Z the day before)
+with its daytime PoP and bid/ask. The same-day board at 12Z has usually
+seen the rain fall or lock in overnight (MKT Brier 0.0001 over n=12 by
+10/22), while MINE is frozen the day before, so the day-ahead legs RAW1 /
+MKT1 are its fair yardstick. A failed day-ahead board never fails the city.
+
 `score` reads the FIRST row per city-day (a freeze is binding; re-runs don't
-overwrite it) and prints newest first: result, then each leg's p and Brier.
-MINE stays in the watchlist — this only guarantees the mechanical legs.
+overwrite it) and prints newest first: result, then each leg's p and Brier,
+same-day RAW / MKT and day-ahead RAW1 / MKT1 (from the day before's row),
+with one summary line each. MINE stays in the watchlist — this only
+guarantees the mechanical legs.
 """
 
 import datetime as dt
@@ -59,6 +67,22 @@ def ticker(city: str, day: str) -> str:
     return f"KXRAIN-{dt.date.fromisoformat(day):%y%b%d}-{city}".upper()
 
 
+def _next(city: str, day: str, periods: list[dict]) -> dict:
+    """Tomorrow's leg: its daytime PoP and board. Never fails the city."""
+    nxt = (dt.date.fromisoformat(day) + dt.timedelta(days=1)).isoformat()
+    rec = {"date": nxt, "ticker": ticker(city, nxt),
+           "raw": raw_pop(periods, nxt)}
+    board = None
+    try:
+        board = kalshi.get_market(rec["ticker"])
+    except Exception as e:
+        print(f"rainfreeze: {city}: day-ahead board {rec['ticker']} "
+              f"failed: {e}", file=sys.stderr)
+    rec.update(yes_bid=(board or {}).get("yes_bid_dollars"),
+               yes_ask=(board or {}).get("yes_ask_dollars"))
+    return rec
+
+
 def freeze(today: str | None = None) -> tuple[int, list[str]]:
     """Append today's freeze per city. Returns (cities fully ok, failed)."""
     ok, failed, out = 0, [], []
@@ -88,6 +112,7 @@ def freeze(today: str | None = None) -> tuple[int, list[str]]:
                   file=sys.stderr)
         rec.update(yes_bid=(board or {}).get("yes_bid_dollars"),
                    yes_ask=(board or {}).get("yes_ask_dollars"))
+        rec["next"] = _next(city, day, periods)
         if periods and board:
             ok += 1
         else:
@@ -120,51 +145,73 @@ def _brier(p: Decimal, y: int) -> Decimal:
     return ((p - y) ** 2).quantize(Q4, rounding=ROUND_HALF_UP)
 
 
+def _legs(r: dict | None, suffix: str = "") -> dict:
+    """{"RAW<suffix>": p, "MKT<suffix>": p} for the legs the row priced."""
+    legs = {}
+    if r and r.get("raw") is not None:
+        legs["RAW" + suffix] = Decimal(str(r["raw"]))
+    if r and kalshi.board_mid(r.get("yes_bid"), r.get("yes_ask")) is not None:
+        legs["MKT" + suffix] = (Decimal(r["yes_bid"])
+                                + Decimal(r["yes_ask"])) / 2
+    return legs
+
+
 def score(days: int = 14):
-    rows = frozen()
-    if not rows:
+    same = {(r["date"], r["city"]): r for r in frozen()}
+    # a day's first freeze binds its day-ahead leg too
+    ahead = {(n["date"], c): n for (_, c), r in same.items()
+             if (n := r.get("next"))}
+    if not same:
         print(f"# no freezes in {JOURNAL}")
         return
-    since = (dt.date.fromisoformat(rows[-1]["date"])
+    keys = sorted(set(same) | set(ahead))
+    since = (dt.date.fromisoformat(keys[-1][0])
              - dt.timedelta(days=days)).isoformat()
     briers = {"RAW": [], "MKT": []}
+    briers1 = {"RAW1": [], "MKT1": []}
     lines = []
-    for r in rows:
-        if r["date"] < since:
+    for key in keys:
+        date, city = key
+        if date < since:
             continue
+        r = same.get(key) or ahead[key]
         try:
             result = kalshi.get_market(r["ticker"]).get("result") or ""
         except Exception:
             result = ""
-        legs = {}
-        if r.get("raw") is not None:
-            legs["RAW"] = Decimal(str(r["raw"]))
-        if kalshi.board_mid(r.get("yes_bid"), r.get("yes_ask")) is not None:
-            legs["MKT"] = (Decimal(r["yes_bid"]) + Decimal(r["yes_ask"])) / 2
-        parts = [r["date"], r["city"], result if result in ("yes", "no")
+        legs = _legs(same.get(key)) | _legs(ahead.get(key), "1")
+        parts = [date, city, result if result in ("yes", "no")
                  else "pending"]
-        for leg in ("RAW", "MKT"):
+        for leg in ("RAW", "MKT", "RAW1", "MKT1"):
             if leg not in legs:
                 parts.append(f"{leg} -")
                 continue
             p = legs[leg]
-            shown = f"{p:.2f}" if leg == "RAW" else f"{p.normalize():f}"
+            shown = (f"{p:.2f}" if leg.startswith("RAW")
+                     else f"{p.normalize():f}")
             if result in ("yes", "no"):
                 b = _brier(p, result == "yes")
                 parts.append(f"{leg} {shown} {b}")
             else:
                 parts.append(f"{leg} {shown}")
-        if result in ("yes", "no") and len(legs) == 2:
-            for leg, p in legs.items():
-                briers[leg].append((p - (result == "yes")) ** 2)
+        if result in ("yes", "no"):
+            for tally in (briers, briers1):
+                if all(leg in legs for leg in tally):
+                    for leg in tally:
+                        tally[leg].append((legs[leg] - (result == "yes")) ** 2)
         lines.append("  ".join(parts))
     for line in reversed(lines):
         print(line)
-    n = len(briers["RAW"])
-    if n:
-        print(f"# n={n} (city-days with both legs settled, last {days}d): "
-              + "  ".join(f"{leg} {(sum(b) / n).quantize(Q4, ROUND_HALF_UP)}"
-                          for leg, b in briers.items()))
+    for label, what, tally in (
+            ("", "both legs", briers),
+            ("day-ahead ", "both day-ahead legs (frozen the day before)",
+             briers1)):
+        n = len(next(iter(tally.values())))
+        if n:
+            print(f"# {label}n={n} (city-days with {what} settled, "
+                  f"last {days}d): "
+                  + "  ".join(f"{leg} {(sum(b) / n).quantize(Q4, ROUND_HALF_UP)}"
+                              for leg, b in tally.items()))
 
 
 def main(argv: list[str]):

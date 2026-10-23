@@ -97,6 +97,9 @@ approval-blocked (proven live 9/27).
    PoP) and MKT (board bid/ask) legs into `$DATA/wx/rain-freeze.jsonl` before
    you run, so those days stay scorable even if you skip the grids;
    `python3 kalshi/rainfreeze.py score [--days N]` prints their Brier scores.
+   It also freezes TOMORROW's board and PoP (scored as RAW1 / MKT1, with a
+   `# day-ahead` summary): compare your day-before MINE pre-regs to MKT1, not
+   to the same-morning MKT, which has usually already seen the rain.
    The `highfreeze` step does the same for KXHIGH (LAX, NY, TDC, TOKC): NWS grid high +
    every bucket's bid/ask into `$DATA/wx/high-freeze.jsonl`;
    `python3 kalshi/highfreeze.py score [--days N]` prints grid error vs the
