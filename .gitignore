@@ -9,3 +9,6 @@ node_modules/
 .env
 .claude/settings.local.json
 HANDOFF.md
+# operator scratch files (PR bodies, probes) written to the repo root
+/pr_body*.md
+/tmp_*.py
