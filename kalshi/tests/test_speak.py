@@ -30,23 +30,31 @@ REPO = pathlib.Path(__file__).parents[2]
 DAILY = REPO / "bin" / "daily.sh"
 
 
-def fake_edge_tts(fail: bool):
+def fake_edge_tts(fail):
     """Stand-in for edge_tts: like the real lib, save() creates the output
-    file before the network can fail."""
+    file before the network can fail. fail=True fails every call; an int
+    fails that many calls, then succeeds."""
     mod = types.ModuleType("edge_tts")
+    mod.calls = 0
 
     class Communicate:
         def __init__(self, text, voice):
             self.text = text
 
         async def save(self, path):
+            mod.calls += 1
             with open(path, "wb") as f:
-                if fail:
+                if fail is True or mod.calls <= fail:
                     raise RuntimeError("403, message='Invalid response status'")
                 f.write(b"ID3" + self.text.encode())
 
     mod.Communicate = Communicate
     return mod
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_sleep(monkeypatch):
+    monkeypatch.setattr(speak.time, "sleep", lambda s: None)
 
 
 @pytest.fixture
@@ -299,3 +307,20 @@ def test_pronounce_respells_kalshi_too():
                    f"{speak.SPOKEN_KALSHI} fees apply.")
     # Tickers and the Kalseer name are untouched by the Kalshi rule.
     assert speak.pronounce("Kalseer") == speak.SPOKEN_NAME
+
+
+def test_transient_tts_failure_is_retried_in_process(brief, monkeypatch, capsys):
+    # 2026-10-23: NoAudioReceived twice, then the same text rendered fine.
+    tts = fake_edge_tts(fail=2)
+    monkeypatch.setitem(sys.modules, "edge_tts", tts)
+    speak.main()
+    assert brief.read_bytes().startswith(b"ID3") and tts.calls == 3
+    assert "retrying" in capsys.readouterr().err
+
+
+def test_persistent_tts_failure_gives_up_after_the_retries(brief, monkeypatch):
+    tts = fake_edge_tts(fail=True)
+    monkeypatch.setitem(sys.modules, "edge_tts", tts)
+    with pytest.raises(RuntimeError):
+        speak.main()
+    assert tts.calls == len(speak.RETRY_WAITS) + 1 and not brief.exists()
