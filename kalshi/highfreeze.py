@@ -21,6 +21,11 @@ grid high, sd 3F, integer-degree bucket edges) and MKT (bucket mids) the
 probability on the winning bucket and the all-bucket Brier. A bucket with an
 empty or wider-than-0.20 book has no mid (kalshi.board_mid), so that day has
 no MKT leg.
+
+BIAS is RAW recentred on grid high minus the city's mean grid error over its
+last 7 earlier settled days in the window (none from the day itself, so no
+lookahead); it needs 3 such days. '# CITY:' lines give each city's grid bias,
+and the summary adds BIAS vs MKT mean Brier over the days that have both.
 """
 
 import datetime as dt
@@ -43,6 +48,7 @@ JOURNAL = DATA / "wx" / "high-freeze.jsonl"
 CITIES = {"LAX": ("LOX", 148, 41), "NY": ("OKX", 33, 37),
           "TDC": ("LWX", 97, 69), "TOKC": ("OUN", 94, 90)}
 SD = 3.0
+BIAS_N, BIAS_MIN = 7, 3  # BIAS leg: mean grid error of the last <=7, >=3
 
 
 def _periods(forecast: dict) -> list[dict]:
@@ -158,6 +164,7 @@ def score(days: int = 14):
     since = (dt.date.fromisoformat(rows[-1]["date"])
              - dt.timedelta(days=days)).isoformat()
     errs, briers, lines = [], {"RAW": [], "MKT": []}, []
+    city_errs, bias_pairs = {}, []
     for r in rows:
         if r["date"] < since:
             continue
@@ -176,8 +183,10 @@ def score(days: int = 14):
             continue
         actual = float(values[0])
         parts = [r["date"], r["city"], f"{actual:g}"]
+        prior = city_errs.setdefault(r["city"], [])[-BIAS_N:]
         if high is not None:
             errs.append(high - actual)
+            city_errs[r["city"]].append(high - actual)
             parts.append(f"{grid} err {high - actual:+g}")
         else:
             parts.append(grid)
@@ -185,20 +194,31 @@ def score(days: int = 14):
         legs = {}
         if buckets and high is not None:
             legs["RAW"] = [raw_p(b, high) for b in buckets]
+            if len(prior) >= BIAS_MIN:
+                centre = high - sum(prior) / len(prior)
+                legs["BIAS"] = [raw_p(b, centre) for b in buckets]
         mids = [_mid(b) for b in buckets]
         if buckets and None not in mids:
             legs["MKT"] = mids
-        for name in ("RAW", "MKT"):
+        scored = {}
+        for name in ("RAW", "MKT", "BIAS"):
             if name not in legs or not any(won):
                 parts.append(f"{name} -")
                 continue
-            text, brier = _leg(name, legs[name], won)
+            text, scored[name] = _leg(name, legs[name], won)
             parts.append(text)
-            if len(legs) == 2:
-                briers[name].append(brier)
+        if "RAW" in scored and "MKT" in scored:
+            briers["RAW"].append(scored["RAW"])
+            briers["MKT"].append(scored["MKT"])
+        if "BIAS" in scored and "MKT" in scored:
+            bias_pairs.append((scored["BIAS"], scored["MKT"]))
         lines.append("  ".join(parts))
     for line in reversed(lines):
         print(line)
+    for city, e in sorted(city_errs.items()):
+        if e:
+            print(f"# {city}: n={len(e)} grid bias {sum(e) / len(e):+.1f}F "
+                  f"MAE {sum(map(abs, e)) / len(e):.1f}F")
     if errs:
         n = len(errs)
         summary = (f"# n={n} settled city-days (last {days}d): grid bias "
@@ -206,6 +226,11 @@ def score(days: int = 14):
         if briers["RAW"]:
             summary += "  " + "  ".join(
                 f"{k} B {sum(v) / len(v):.4f}" for k, v in briers.items())
+        if bias_pairs:
+            k = len(bias_pairs)
+            summary += (f"  BIAS B {sum(b for b, _ in bias_pairs) / k:.4f} "
+                        f"vs MKT B {sum(m for _, m in bias_pairs) / k:.4f} "
+                        f"(n={k})")
         print(summary)
 
 

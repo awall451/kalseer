@@ -105,7 +105,9 @@ approval-blocked (proven live 9/27).
    The `highfreeze` step does the same for KXHIGH (LAX, NY, TDC, TOKC): NWS grid high +
    every bucket's bid/ask into `$DATA/wx/high-freeze.jsonl`;
    `python3 kalshi/highfreeze.py score [--days N]` prints grid error vs the
-   settled max and RAW (normal, sd 3F) / MKT winning-bucket p and Brier.
+   settled max and RAW (normal, sd 3F) / MKT winning-bucket p and Brier,
+   plus each city's grid bias and a BIAS leg (RAW shifted by that city's
+   trailing grid error), so don't keep a grid-bias ledger by hand.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
