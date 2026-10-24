@@ -208,7 +208,8 @@ Carry all of this in the relevant watchlist item:
   against the frozen board, so don't recompute it by hand. A point estimate
   of a settled value (the daily gas/diesel MINE) freezes with
   `python3 kalshi/prereg.py point EVENT MINE 4.2530`; for KXAAAGASD/KXDIESELD
-  `score` races it against fuelscore's RW / MOM / DRIFT for you.
+  `score` races it against fuelscore's RW / MOM / DRIFT for you, off today's
+  journal print even before Kalshi settles it (gas/diesel ladders too).
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.
