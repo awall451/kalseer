@@ -28,7 +28,10 @@ and a board-vs-model tally over divergent strikes, where whichever is
 closer to the outcome wins. The summary's n is every settled event; a leg
 scored on fewer (BOARD, when books were empty) shows its own (nK). Those
 means run over different strikes, so a paired line scores each model and
-BOARD on the same board-priced strikes (mK of them).
+BOARD on the same board-priced strikes (mK of them). Until Kalshi settles an
+event, it scores off the AAA journal's print for its date (the exact value
+it settles on), marked "(AAA journal, Kalshi unsettled)"; a strike the
+print sits exactly on is left out.
 
 EMP is a fourth, non-parametric leg: P(print > strike) is the share of every
 k-print change in the trailing EMP_DAYS (90) that lands base + change above
@@ -236,6 +239,17 @@ def frozen() -> list[dict]:
     return sorted(first.values(), key=lambda r: (r["date"], r["event"]))
 
 
+def _journal_print(journals: dict, r: dict) -> Decimal | None:
+    """The AAA journal's print for the row's settlement day, or None;
+    `journals` caches each grade's series."""
+    if r.get("grade") not in journals:
+        try:
+            journals[r.get("grade")] = dict(fuelscore.series(r["grade"]))
+        except (KeyError, OSError, ValueError):
+            journals[r.get("grade")] = {}
+    return journals[r.get("grade")].get(r["date"])
+
+
 def score(days: int = 14):
     rows = frozen()
     if not rows:
@@ -247,7 +261,7 @@ def score(days: int = 14):
     tally = {n: [0, 0] for n in SCORED}
     paired = {n: [0.0, 0.0, 0] for n in SCORED}  # model, board, strikes
     settled = 0
-    lines = []
+    lines, journals = [], {}
     for r in rows:
         if r["date"] < since:
             continue
@@ -260,9 +274,20 @@ def score(days: int = 14):
         values = [m.get("expiration_value") for m in markets
                   if m.get("result") in ("yes", "no")
                   and m.get("expiration_value") not in (None, "")]
+        source = ""
         if not values:
-            lines.append(f"{head}  pending")
-            continue
+            actual = _journal_print(journals, r)
+            if actual is None:
+                lines.append(f"{head}  pending")
+                continue
+            # the exact print the event settles on; a strike it sits on
+            # is left unscored
+            result = {s["ticker"]: "yes" if actual > Decimal(str(s["floor"]))
+                      else "no" for s in r["strikes"]
+                      if s["floor"] is not None
+                      and actual != Decimal(str(s["floor"]))}
+            values = [actual]
+            source = "  (AAA journal, Kalshi unsettled)"
         legs = {leg: [] for leg in LEGS}
         for s in r["strikes"]:
             if result.get(s["ticker"]) not in ("yes", "no"):
@@ -292,7 +317,7 @@ def score(days: int = 14):
             parts.append(f"{leg} {sum(v) / len(v):.4f}" if v else f"{leg} -")
             if v:
                 briers[leg].append(sum(v) / len(v))
-        lines.append("  ".join(parts))
+        lines.append("  ".join(parts) + source)
     for line in reversed(lines):
         print(line)
     if settled:

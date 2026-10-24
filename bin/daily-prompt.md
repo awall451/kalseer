@@ -65,6 +65,8 @@ approval-blocked (proven live 9/27).
      list board-vs-model divergences (>= 0.25). Those are your divergence
      datums, already frozen: `python3 kalshi/fuelfreeze.py score [--days N]`
      prints per-event Brier and the board-vs-model divergence tally
+     (an event due today scores off this morning's journal print, before
+     Kalshi settles it)
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math
