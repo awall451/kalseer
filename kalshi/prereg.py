@@ -29,7 +29,9 @@ the same one-row-per-EVENT+LEG rule; it refuses an event whose markets have
 all closed. `score` prints its error (actual - forecast). For KXAAAGASD /
 KXDIESELD it adds fuelscore's RW / MOM / DRIFT forecasts of the same print
 (off the journal, window 5) and the closest; the summary gives each one's MAE
-and "best" count over those rows (ties count for each).
+and "best" count over those rows (ties count for each). Both settle on the
+exact AAA print, so until Kalshi settles one, `score` uses the journal's
+print for that day, marked "(AAA journal, Kalshi unsettled)".
 """
 
 import json
@@ -100,21 +102,36 @@ def point(event: str, leg: str, value: str, now: datetime | None = None):
     return rec
 
 
-def _fuel_models(event: str) -> dict:
-    """fuelscore's RW / MOM / DRIFT forecasts for a KXAAAGASD / KXDIESELD
-    event's print, off the journal; {} for any other event or a gap."""
+def _fuel_prints(event: str):
+    """(print day, {date: price} off the journal) for a KXAAAGASD /
+    KXDIESELD event; None for any other event or an unreadable journal."""
     grade = {s: g for g, s in fuelscore.SETTLED.items()}.get(
         event.split("-")[0])
     if not grade:
-        return {}
+        return None
     try:
         day = datetime.strptime(event.split("-")[1], "%y%b%d").date()
-        prices = dict(fuelscore.series(grade))
+        return day, dict(fuelscore.series(grade))
     except (IndexError, ValueError, OSError):
+        return None
+
+
+def _fuel_models(event: str) -> dict:
+    """fuelscore's RW / MOM / DRIFT forecasts for a KXAAAGASD / KXDIESELD
+    event's print, off the journal; {} for any other event or a gap."""
+    found = _fuel_prints(event)
+    if not found:
         return {}
+    day, prices = found
     fc = fuelscore.forecasts(prices, (day - timedelta(days=1)).isoformat(),
                              FUEL_WINDOW)
     return {} if None in fc.values() else fc
+
+
+def _journal_print(event: str) -> Decimal | None:
+    """The journal's AAA print a daily fuel event settles on, or None."""
+    found = _fuel_prints(event)
+    return found[1].get(found[0].isoformat()) if found else None
 
 
 def add(event: str, leg: str, probs: dict[str, float],
@@ -230,8 +247,14 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
               if m.get("result") in ("yes", "no")
               and m.get("expiration_value") not in (None, "")]
     actual = _num(values[0]) if values else None
+    source = ""
     if actual is None:
-        return f"{head}  pending"
+        # the run journals the print minutes before judgment; Kalshi
+        # settles hours later on that exact print
+        actual = _journal_print(r["event"])
+        if actual is None:
+            return f"{head}  pending"
+        source = "  (AAA journal, Kalshi unsettled)"
     models = _fuel_models(r["event"])
     if models:
         actual = actual.quantize(Decimal("0.0001"))
@@ -246,7 +269,7 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
     fmt = ".4f" if models else "f"  # fuel: AAA's 4 places
     return (f"{head}  = {actual}  " + "  ".join(
         f"{m} {fc[m]:{fmt}} err {e:+{fmt}}" for m, e in err.items())
-        + (f"  -> {win}" if models else ""))
+        + (f"  -> {win}" if models else "") + source)
 
 
 def main(argv: list[str]):
