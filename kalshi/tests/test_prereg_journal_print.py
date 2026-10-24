@@ -67,6 +67,36 @@ def test_settled_value_still_wins_over_the_journal(env, capsys):
     assert "journal" not in line
 
 
+WEEKLY = "KXDIESELW-26OCT22"  # settles on the 10/22 print, 6.3172
+
+
+def above(strike, event=WEEKLY):
+    return {"ticker": f"{event}-T{strike}", "strike_type": "greater",
+            "floor_strike": float(strike), "yes_bid_dollars": "0.4000",
+            "yes_ask_dollars": "0.5000", "close_time": "2026-10-22T03:59:00Z",
+            "status": "active", "result": "", "expiration_value": None}
+
+
+def test_unsettled_fuel_ladder_scores_off_the_journal_print(env, capsys):
+    # the weekly race (op note: KXDIESELW/KXAAAGASW-26OCT26 settle on 10/26)
+    # would show pending at Monday's 12Z run for the same reason
+    env[WEEKLY] = {"markets": [above("6.31"), above("6.32")]}
+    prereg.add(WEEKLY, "MINE", {"T6.31": 0.8, "T6.32": 0.3}, now=NOW)
+    prereg.score()
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if WEEKLY in l][0]
+    # 6.3172 > 6.31 YES, not > 6.32 NO: MINE 0.04 + 0.09; board mids 0.45
+    assert "= 6.3172  n2  MINE 0.1300  BOARD 0.5050  -> MINE" in line
+    assert line.endswith("(AAA journal, Kalshi unsettled)")
+
+
+def test_ladder_with_a_print_on_a_strike_stays_pending(env, capsys):
+    env[WEEKLY] = {"markets": [above("6.3172"), above("6.32")]}
+    prereg.add(WEEKLY, "MINE", {"T6.3172": 0.5, "T6.32": 0.3}, now=NOW)
+    prereg.score()
+    assert f"{WEEKLY}  MINE  pending" in capsys.readouterr().out
+
+
 def test_non_fuel_point_without_settlement_stays_pending(env, capsys,
                                                          monkeypatch):
     e = "KXPAYROLLS-26OCT"

@@ -29,9 +29,13 @@ the same one-row-per-EVENT+LEG rule; it refuses an event whose markets have
 all closed. `score` prints its error (actual - forecast). For KXAAAGASD /
 KXDIESELD it adds fuelscore's RW / MOM / DRIFT forecasts of the same print
 (off the journal, window 5) and the closest; the summary gives each one's MAE
-and "best" count over those rows (ties count for each). Both settle on the
-exact AAA print, so until Kalshi settles one, `score` uses the journal's
-print for that day, marked "(AAA journal, Kalshi unsettled)".
+and "best" count over those rows (ties count for each).
+
+Every AAA fuel series (gas/diesel daily, weekly, monthly) settles on the
+exact AAA print of the event's date, so until Kalshi settles one, `score`
+uses the journal's print for that day, marked "(AAA journal, Kalshi
+unsettled)": a point's error, or a ladder's 'above' strikes (a print exactly
+on a strike waits for Kalshi).
 """
 
 import json
@@ -41,6 +45,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
+import fuelfreeze
 import fuelscore
 import kalshi
 
@@ -103,10 +108,9 @@ def point(event: str, leg: str, value: str, now: datetime | None = None):
 
 
 def _fuel_prints(event: str):
-    """(print day, {date: price} off the journal) for a KXAAAGASD /
-    KXDIESELD event; None for any other event or an unreadable journal."""
-    grade = {s: g for g, s in fuelscore.SETTLED.items()}.get(
-        event.split("-")[0])
+    """(print day, {date: price} off the journal) for an AAA-settled fuel
+    event (fuelfreeze.SERIES); None for any other or an unreadable journal."""
+    grade = fuelfreeze.SERIES.get(event.split("-")[0])
     if not grade:
         return None
     try:
@@ -119,7 +123,8 @@ def _fuel_prints(event: str):
 def _fuel_models(event: str) -> dict:
     """fuelscore's RW / MOM / DRIFT forecasts for a KXAAAGASD / KXDIESELD
     event's print, off the journal; {} for any other event or a gap."""
-    found = _fuel_prints(event)
+    found = (_fuel_prints(event)
+             if event.split("-")[0] in fuelscore.SETTLED.values() else None)
     if not found:
         return {}
     day, prices = found
@@ -132,6 +137,26 @@ def _journal_print(event: str) -> Decimal | None:
     """The journal's AAA print a daily fuel event settles on, or None."""
     found = _fuel_prints(event)
     return found[1].get(found[0].isoformat()) if found else None
+
+
+def _journal_outcomes(event: str, tickers, result: dict):
+    """(print, {ticker: YES?}) for a fuel ladder off the journal print, or
+    None: no print yet, a strike that isn't 'above', or a print exactly on
+    one (left to Kalshi)."""
+    actual = _journal_print(event)
+    if actual is None:
+        return None
+    out = {}
+    for t in tickers:
+        m = result.get(t) or {}
+        floor = m.get("floor_strike")
+        if m.get("strike_type") != "greater" or floor is None:
+            return None
+        floor = Decimal(str(floor))
+        if actual == floor:
+            return None
+        out[t] = actual > floor
+    return actual, out
 
 
 def add(event: str, leg: str, probs: dict[str, float],
@@ -199,20 +224,29 @@ def score(days: int = 30, prefix: str = ""):
             continue
         settled = [result.get(t, {}).get("result") in ("yes", "no")
                    for t in r["probs"]]
-        if not settled or not all(settled):
-            lines.append(f"{head}  pending")
-            continue
-        value = next((m.get("expiration_value") for m in result.values()
-                      if m.get("expiration_value") not in (None, "")), "?")
+        source = ""
+        if settled and all(settled):
+            value = next((m.get("expiration_value") for m in result.values()
+                          if m.get("expiration_value") not in (None, "")),
+                         "?")
+            yes = {t: result[t]["result"] == "yes" for t in r["probs"]}
+        else:
+            found = _journal_outcomes(r["event"], r["probs"], result)
+            if not found:
+                lines.append(f"{head}  pending")
+                continue
+            value, yes = found
+            source = "  (AAA journal, Kalshi unsettled)"
         mine = board = 0.0
         for t, p in r["probs"].items():
-            y = result[t]["result"] == "yes"
+            y = yes[t]
             mid = _mid(r["board"].get(t))
             mine += (p - y) ** 2
             board += ((mid if mid is not None else 0.5) - y) ** 2
         win = r["leg"] if mine < board else "BOARD" if board < mine else "tie"
         lines.append(f"{head}  = {value}  n{len(r['probs'])}  "
-                     f"{r['leg']} {mine:.4f}  BOARD {board:.4f}  -> {win}")
+                     f"{r['leg']} {mine:.4f}  BOARD {board:.4f}  -> {win}"
+                     + source)
         t = totals.setdefault(r["leg"], [0, 0.0, 0.0, 0, 0])
         t[0] += 1
         t[1] += mine
