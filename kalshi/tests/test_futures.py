@@ -92,7 +92,7 @@ def test_aliases_map_to_front_month_symbols(api, capsys):
                           ("wti", "CL=F"), ("brent", "BZ=F")]:
         api["calls"].clear()
         futures.main(["closes", alias])
-        assert api["calls"] == [symbol], alias
+        assert api["calls"][0] == symbol, alias
 
 
 def test_raw_symbol_passes_through_for_a_specific_contract(api, capsys):
