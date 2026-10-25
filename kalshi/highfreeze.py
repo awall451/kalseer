@@ -156,6 +156,26 @@ def _leg(name: str, probs: list[float], won: list[bool]) -> tuple[str, float]:
             f"B {brier:.4f}"), brier
 
 
+HELD_HOURS = 24  # KXHIGH settles hours after close; a day later is a hold
+
+
+def _held(markets: list[dict]) -> str:
+    """'  HELD: …' when every market closed over HELD_HOURS ago with no
+    result (KXHIGHLAX-26OCT22: CLILAX revised 71 -> 72 -> 71, on the edge)."""
+    closes = [m.get("close_time") for m in markets]
+    if not closes or not all(closes):
+        return ""
+    close = max(closes)
+    try:
+        closed = dt.datetime.fromisoformat(close.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    age = dt.datetime.now(dt.timezone.utc) - closed
+    if age < dt.timedelta(hours=HELD_HOURS):
+        return ""
+    return f"  HELD: closed {close}, Kalshi has not settled"
+
+
 def score(days: int = 14):
     rows = frozen()
     if not rows:
@@ -179,7 +199,8 @@ def score(days: int = 14):
         high, buckets = r.get("high"), r.get("buckets") or []
         grid = f"grid {high}" if high is not None else "grid -"
         if not values:
-            lines.append(f"{r['date']}  {r['city']}  pending  {grid}")
+            lines.append(f"{r['date']}  {r['city']}  pending  {grid}"
+                         + _held(markets))
             continue
         actual = float(values[0])
         parts = [r["date"], r["city"], f"{actual:g}"]

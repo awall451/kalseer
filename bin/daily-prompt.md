@@ -108,6 +108,9 @@ approval-blocked (proven live 9/27).
    settled max and RAW (normal, sd 3F) / MKT winning-bucket p and Brier,
    plus each city's grid bias and a BIAS leg (RAW shifted by that city's
    trailing grid error), so don't keep a grid-bias ledger by hand.
+   A `HELD` tag on a pending row means Kalshi closed the event over a day ago
+   without settling it (e.g. a CLI max revised across a bucket edge). That day
+   is out of every summary until it settles, so don't score it by hand.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
