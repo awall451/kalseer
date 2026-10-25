@@ -33,6 +33,15 @@ day's close, as on 10/17); neither number is verified. A row tagged
 (10/16 ULSD 4.7232 == 10/12, brief 10/18) and warns when it is the newest
 bar — a recycled number, unverified until a quoted settle. The front month rolls
 mid-month, so a jump across a roll is a contract switch, not a move.
+
+For rbob/ulsd, `closes` also reads the explicit front and next months
+(e.g. HOX26.NYM / HOZ26.NYM; RB/HO expire on the last weekday of the month
+before delivery, holidays not modelled) and tags each bar `month X26` with
+the contract whose close it equals (`month ?` = neither). Brief 10/24: the
+10/23 bar was Nov's and the last trade Dec's. A '# WARNING: the bars switch
+contract month' line means the continuous series hopped months inside the
+window. `archive` also journals both months as <alias>-<code> (ulsd-Z26),
+readable with `first ulsd-Z26`; a contract failure never fails the step.
 Yahoo's close is its own feed, not the CME settlement file: cross-check one
 day against a quoted settle (FreightWaves: ULSD 4.9344 on 10/13) before
 leaning on the levels. An error body or an unexpected shape is a loud exit.
@@ -61,6 +70,50 @@ ALIASES = {
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
 ARCHIVE = ("rbob", "ulsd")  # the gas and diesel boards' wholesale drivers
+
+# Explicit contract months behind the continuous RB=F/HO=F (brief 10/24: the
+# 10/23 bars and last trade came from different months around the Nov roll)
+ROOTS = {"rbob": "RB", "ulsd": "HO", "ho": "HO"}
+MONTHS = "FGHJKMNQUVXZ"
+
+
+def _expiry(year: int, month: int) -> datetime.date:
+    """Last weekday of the month before delivery (NYMEX RB/HO; exchange
+    holidays are not modelled)."""
+    day = datetime.date(year, month, 1) - datetime.timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= datetime.timedelta(days=1)
+    return day
+
+
+def _add_month(year: int, month: int, n: int = 1) -> tuple[int, int]:
+    i = year * 12 + month - 1 + n
+    return i // 12, i % 12 + 1
+
+
+def front_month(day: datetime.date) -> tuple[int, int]:
+    """(year, delivery month) of the contract that is front on `day`."""
+    ym = _add_month(day.year, day.month)
+    return ym if day <= _expiry(*ym) else _add_month(*ym)
+
+
+def _code(year: int, month: int) -> str:
+    return f"{MONTHS[month - 1]}{year % 100:02d}"
+
+
+def contract(name: str, year: int, month: int) -> str:
+    return f"{ROOTS[name]}{_code(year, month)}.NYM"
+
+
+def _symbol(name: str) -> str | None:
+    """Yahoo symbol of a journal name: an alias or '<alias>-<month code>'."""
+    if name in ALIASES:
+        return ALIASES[name]
+    alias, _, code = name.partition("-")
+    if alias in ROOTS and len(code) == 3 and code[0] in MONTHS \
+            and code[1:].isdigit():
+        return f"{ROOTS[alias]}{code}.NYM"
+    return None
 
 
 def _fetch(symbol: str) -> object:
@@ -100,7 +153,7 @@ def _read(name: str) -> list[dict]:
 
 def archive(name: str) -> tuple[int, int]:
     """Journal new settled days and revisions; returns (new, revised)."""
-    meta, bars = _series(_fetch(ALIASES[name]))
+    meta, bars = _series(_fetch(_symbol(name)))
     today = datetime.datetime.fromtimestamp(
         _now() + int(meta.get("gmtoffset", 0)), datetime.UTC).date().isoformat()
     latest = {r["date"]: r["close"] for r in _read(name)}
@@ -143,7 +196,7 @@ def print_first(name: str, since: str | None):
         print(line)
     revised = sum(abs(latest[d] - first[d]) >= 0.00005 for d in days)
     print(f"# {revised} of {len(days)} days revised since first seen "
-          f"({name} = {ALIASES[name]}, settled days only)")
+          f"({name} = {_symbol(name)}, settled days only)")
 
 
 def _main_archive(argv: list[str]):
@@ -157,10 +210,25 @@ def _main_archive(argv: list[str]):
                 failed.append(name)
                 continue
             print(f"futures archive: {name}: {new} new days, {revised} revised")
+        # the front and next months, contract-consistent across the roll;
+        # extras, so a failure here never fails the step
+        front = front_month(datetime.datetime.fromtimestamp(
+            _now(), datetime.UTC).date())
+        for name in ARCHIVE:
+            for ym in (front, _add_month(*front)):
+                month = f"{name}-{_code(*ym)}"
+                label = f"{month} ({contract(name, *ym)})"
+                try:
+                    new, revised = archive(month)
+                except (Exception, SystemExit) as e:
+                    print(f"futures archive: {label}: failed: {e}")
+                    continue
+                print(f"futures archive: {label}: {new} new days, "
+                      f"{revised} revised")
         if len(failed) == len(ARCHIVE):
             sys.exit(1)
         return
-    if argv[:1] == ["first"] and len(argv) >= 2 and argv[1] in ALIASES:
+    if argv[:1] == ["first"] and len(argv) >= 2 and _symbol(argv[1]):
         since = None
         if argv[2:3] == ["--since"] and len(argv) == 4:
             since = argv[3]
@@ -246,6 +314,57 @@ def _repeats(bars: list[tuple[str, float]], i: int) -> str | None:
     return None
 
 
+def _months(name: str, shown: list[tuple[str, float]]) -> dict | None:
+    """{code: (symbol, expiry, meta, {day: close})} for the front and next
+    months of every shown day; None if no contract month could be read."""
+    yms = []
+    for day, _ in reversed(shown):
+        front = front_month(datetime.date.fromisoformat(day))
+        for ym in (front, _add_month(*front)):
+            if ym not in yms:
+                yms.append(ym)
+    months = {}
+    for ym in sorted(yms):
+        sym = contract(name, *ym)
+        try:
+            meta, cbars = _series(_fetch(sym))
+        except (Exception, SystemExit):
+            continue
+        months[_code(*ym)] = (sym, _expiry(*ym), meta, dict(cbars))
+    return months or None
+
+
+def _print_months(name: str, meta: dict, months: dict | None):
+    if not months:
+        print(f"# {name}: contract months unavailable; bars untagged")
+        return
+    for code, (sym, expiry, cmeta, by_day) in months.items():
+        if by_day:
+            newest = max(by_day)
+            print(f"# {sym} (expires {expiry}): latest {newest} = "
+                  f"{by_day[newest]:.4f}")
+    if "regularMarketPrice" in meta:
+        price = float(meta["regularMarketPrice"])
+        owners = [(code, sym) for code, (sym, _, cmeta, _) in months.items()
+                  if abs(float(cmeta.get("regularMarketPrice", -1)) - price)
+                  < 0.00005]
+        if len(owners) == 1:
+            code, sym = owners[0]
+            print(f"# last trade {price:.4f} is the {code} contract's ({sym})")
+
+
+def _switch(shown: list[tuple[str, float]], tags: dict) -> str | None:
+    """A warning when consecutive bars come from different contract months."""
+    seq = [(day, tags[day][0]) for day, _ in shown if len(tags.get(day, [])) == 1]
+    odd = [f"{day} {code}" for (day, code), (_, prev) in zip(seq, seq[1:])
+           if code != prev]
+    if not odd:
+        return None
+    return (f"# WARNING: the bars switch contract month ({', '.join(odd)} vs "
+            "the next older bar) -> a jump across a switch is a contract "
+            "change, not a move; read the month's own row above")
+
+
 def main(argv: list[str]):
     if argv[:1] in (["archive"], ["first"]):
         return _main_archive(argv)
@@ -262,7 +381,10 @@ def main(argv: list[str]):
     if not bars:
         print(f"# no bars for {symbol}")
         return
-    for i, (day, close) in enumerate(bars[:days]):
+    shown = bars[:days]
+    months = _months(name, shown) if name in ROOTS else None
+    tags = {}
+    for i, (day, close) in enumerate(shown):
         parts = [day, f"{close:.4f}"]
         if i + 1 < len(bars):
             parts.append(f"d/d {close - bars[i + 1][1]:+.4f}")
@@ -271,7 +393,13 @@ def main(argv: list[str]):
         repeated = _repeats(bars, i)
         if repeated:
             parts.append(f"= {repeated} close")
+        if months:
+            tags[day] = [code for code, (_, _, _, by_day) in months.items()
+                         if abs(by_day.get(day, -1) - close) < 0.00005]
+            parts.append(f"month {'/'.join(tags[day]) or '?'}")
         print("  ".join(parts))
+    if name in ROOTS:
+        _print_months(name, meta, months)
     label = f"{name} = {symbol}" if name in ALIASES else symbol
     footer = [f"# {label}: {len(bars)} daily bars, "
               f"latest {bars[0][0]} = {bars[0][1]:.4f}", _last_trade(meta)]
@@ -279,6 +407,9 @@ def main(argv: list[str]):
     warning = _conflict(meta, bars)
     if warning:
         print(warning)
+    switch = _switch(shown, tags)
+    if switch:
+        print(switch)
     repeated = _repeats(bars, 0)
     if repeated:
         print(f"# WARNING: the {bars[0][0]} bar {bars[0][1]:.4f} repeats the "

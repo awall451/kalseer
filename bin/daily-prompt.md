@@ -128,6 +128,10 @@ approval-blocked (proven live 9/27).
    line means Yahoo's last-trade quote contradicts the bars, or the newest
    bar repeats a recent close digit-for-digit (rows tagged `= <day> close`):
    that day is unverified until a quoted settle or the next run's re-read agrees.
+   rbob/ulsd rows also carry `month X26`, the explicit contract the bar's close
+   matches. A "switch contract month" warning or a last trade "is the Z26
+   contract's" means a gap is a roll, not a move, so compare like months
+   (`first ulsd-Z26` reads the journaled per-month closes).
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
