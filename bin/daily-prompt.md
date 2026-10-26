@@ -111,6 +111,12 @@ approval-blocked (proven live 9/27).
    A `HELD` tag on a pending row means Kalshi closed the event over a day ago
    without settling it (e.g. a CLI max revised across a bucket edge). That day
    is out of every summary until it settles, so don't score it by hand.
+   RCP approval (KXTRUMPAPPROVE) is unreadable at the source, but Kalshi's
+   settled values are the series: the `approvefreeze` step freezes RW (normal
+   around yesterday's settled value) and EMP (the history's own k-day moves)
+   odds per bucket next to the board into `$DATA/rcp/approve-freeze.jsonl`;
+   `python3 kalshi/approvefreeze.py score [--days N]` prints BOARD / RW / EMP
+   winning-bucket p and Brier. Calibration only until it has a record.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
