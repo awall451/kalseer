@@ -30,10 +30,12 @@ REPO = pathlib.Path(__file__).parents[2]
 DAILY = REPO / "bin" / "daily.sh"
 
 
-def fake_edge_tts(fail):
+def fake_edge_tts(fail, short=0):
     """Stand-in for edge_tts: like the real lib, save() creates the output
     file before the network can fail. fail=True fails every call; an int
-    fails that many calls, then succeeds."""
+    fails that many calls, then succeeds. short=True (or an int) returns that
+    many truncated takes without raising, as the service did on 10-25. A good
+    take is sized like the real voice (~360 bytes per character)."""
     mod = types.ModuleType("edge_tts")
     mod.calls = 0
 
@@ -46,7 +48,10 @@ def fake_edge_tts(fail):
             with open(path, "wb") as f:
                 if fail is True or mod.calls <= fail:
                     raise RuntimeError("403, message='Invalid response status'")
-                f.write(b"ID3" + self.text.encode())
+                if short is True or mod.calls <= short:
+                    f.write(b"\xff\xf3" + b"\0" * 2158)
+                    return
+                f.write(b"ID3" + self.text.encode() + b"\0" * (360 * len(self.text)))
 
     mod.Communicate = Communicate
     return mod
@@ -324,3 +329,41 @@ def test_persistent_tts_failure_gives_up_after_the_retries(brief, monkeypatch):
     with pytest.raises(RuntimeError):
         speak.main()
     assert tts.calls == len(speak.RETRY_WAITS) + 1 and not brief.exists()
+
+
+# 2026-10-25: the service returned 2160 bytes (15 frames, ~0.4s) for a
+# 1207-character brief without raising, so the retry never fired, the step
+# logged "ok", and the dashboard served a player with nothing in it. Normal
+# takes run ~360 bytes per character (329-625 KB for 909-1701 chars).
+
+def test_truncated_take_is_retried_like_a_failure(brief, monkeypatch, capsys):
+    tts = fake_edge_tts(fail=False, short=1)
+    monkeypatch.setitem(sys.modules, "edge_tts", tts)
+    speak.main()
+    assert brief.read_bytes().startswith(b"ID3") and tts.calls == 2
+    assert "too short" in capsys.readouterr().err
+
+
+def test_persistently_truncated_audio_fails_and_publishes_nothing(brief,
+                                                                monkeypatch):
+    tts = fake_edge_tts(fail=False, short=True)
+    monkeypatch.setitem(sys.modules, "edge_tts", tts)
+    with pytest.raises(speak.ShortAudio):
+        speak.main()
+    assert tts.calls == len(speak.RETRY_WAITS) + 1
+    assert list(brief.parent.iterdir()) == []
+
+
+def test_truncated_take_keeps_an_earlier_good_mp3(brief, monkeypatch):
+    brief.parent.mkdir(parents=True)
+    brief.write_bytes(b"ID3 earlier good take")
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts(False, True))
+    with pytest.raises(speak.ShortAudio):
+        speak.main()
+    assert brief.read_bytes() == b"ID3 earlier good take"
+
+
+def test_short_floor_sits_far_below_every_real_take():
+    # the smallest real brief take (10-21: 337680 B / 909 chars) and the
+    # 10-25 truncation (2160 B / 1207 chars) on either side of the floor
+    assert 2160 / 1207 < speak.MIN_BYTES_PER_CHAR < 337680 / 909 / 2
