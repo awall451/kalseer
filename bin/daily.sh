@@ -179,6 +179,9 @@ run_step highfreeze python3 kalshi/highfreeze.py freeze
 # And for the fuel boards: RW/MOM/DRIFT odds per strike off today's AAA print,
 # so board-vs-model "divergence datums" are frozen, not hand-logged (10/19).
 run_step fuelfreeze python3 kalshi/fuelfreeze.py freeze
+# And for RCP approval (unreadable source): RW/EMP bucket odds off Kalshi's
+# own settled values vs the board, scored once each day settles (10/26).
+run_step approvefreeze python3 kalshi/approvefreeze.py freeze
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
