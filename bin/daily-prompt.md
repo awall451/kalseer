@@ -175,6 +175,9 @@ approval-blocked (proven live 9/27).
    was never written. The stub only needs `date`, the settled trades you can
    already see, and a one-line narrative saying research is in progress.
    Overwrite it with the real narrative once the board is done.
+   After every write, run `python3 kalshi/brief.py check` (granted; it reads
+   today's brief) and fix anything it prints. The pipeline runs the same
+   check after you and fails the run on an invalid brief.
 
    Schema (match the newest existing `brief-*.json`):
 

@@ -18,6 +18,7 @@
       "Bash(python3 kalshi/futures.py *)",
       "Bash(python3 kalshi/watchlist.py *)",
       "Bash(python3 kalshi/prereg.py *)",
+      "Bash(python3 kalshi/brief.py *)",
       "Bash(python3 -c *)",
       "Bash(curl -s https://api.elections.kalshi.com/*)",
       "Bash(curl -s https://api.weather.gov/*)",
