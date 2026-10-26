@@ -185,9 +185,14 @@ run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
 run_step claude  claude_step
 
 # Judgment step must leave a brief for today; if not, that's a failure too.
+# A brief that doesn't parse or match the schema counts as missing: every
+# reader downstream (publish, speak, the dashboard) trusts its shape.
 BRIEF="$DATA_DIR/brief-$(date +%F).json"
 if [ ! -f "$BRIEF" ] && [ -z "$FAILED_STEP" ]; then
   echo "--- FAILED: claude (no $BRIEF produced)"
+  FAILED_STEP="claude"
+elif [ -z "$FAILED_STEP" ] && ! python3 kalshi/brief.py check "$BRIEF"; then
+  echo "--- FAILED: claude ($BRIEF is not a valid brief)"
   FAILED_STEP="claude"
 fi
 

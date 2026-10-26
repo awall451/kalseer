@@ -335,6 +335,23 @@ def mark_history():
     return hist
 
 
+def load_briefs(paths):
+    """[(path, brief)] for every readable brief. One malformed file is left
+    off the dashboard (and named) instead of failing every publish after it."""
+    out = []
+    for b in paths:
+        try:
+            d = json.loads(b.read_text())
+        except (OSError, ValueError) as e:
+            print(f"publish: skipping unreadable {b.name}: {e}")
+            continue
+        if isinstance(d, dict):
+            out.append((b, d))
+        else:
+            print(f"publish: skipping {b.name}: not a JSON object")
+    return out
+
+
 def main():
     PUBLIC.mkdir(parents=True, exist_ok=True)
     portfolio = paper.load()
@@ -342,17 +359,16 @@ def main():
     record_marks(portfolio)
     hist = mark_history()
 
-    briefs = sorted(paper.DATA.glob("brief-*.json"))
-    for b in briefs:
+    briefs = load_briefs(sorted(paper.DATA.glob("brief-*.json")))
+    for b, _ in briefs:
         shutil.copy2(b, PUBLIC / b.name)
-    dates = sorted((b.stem.replace("brief-", "") for b in briefs), reverse=True)
+    dates = sorted((b.stem.replace("brief-", "") for b, _ in briefs), reverse=True)
     (PUBLIC / "manifest.json").write_text(json.dumps({"dates": dates}))
 
     # series slug map for kalshi.com deep links on trade cards
     tickers = {x["ticker"] for x in portfolio["positions"]}
     tickers.update(r["ticker"] for r in closed)
-    for b in briefs:
-        d = json.loads(b.read_text())
+    for _, d in briefs:
         for sec in ("trades_opened", "trades_settled", "considered_but_passed"):
             tickers.update(t.get("ticker", "") for t in d.get(sec, []))
     (PUBLIC / "series.json").write_text(json.dumps(series_slugs(tickers)))
