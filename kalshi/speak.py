@@ -103,6 +103,16 @@ def pronounce(text: str) -> str:
 # upgrade-and-retry.
 RETRY_WAITS = (5, 20, 60)
 
+# It can also end the stream early without raising: 2026-10-25 saved 2160
+# bytes (~0.4s) for a 1207-character brief and the step logged "ok". Real
+# takes run ~360 bytes per character, so anything under this floor is a
+# truncated take and gets the same retries as an exception.
+MIN_BYTES_PER_CHAR = 64
+
+
+class ShortAudio(Exception):
+    pass
+
 
 def synth(edge_tts, text: str, out: pathlib.Path):
     """Render text to out. edge-tts creates its output file before the
@@ -115,6 +125,10 @@ def synth(edge_tts, text: str, out: pathlib.Path):
         for wait in (*RETRY_WAITS, None):
             try:
                 asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(tmp)))
+                size = tmp.stat().st_size
+                if size < MIN_BYTES_PER_CHAR * len(text):
+                    raise ShortAudio(f"take too short: {size} bytes for "
+                                     f"{len(text)} chars")
                 break
             except Exception as e:
                 if wait is None:
