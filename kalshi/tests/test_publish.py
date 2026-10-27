@@ -218,6 +218,7 @@ def test_stats_brier_baseline_is_the_yardstick():
 @pytest.fixture
 def title_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(publish, "TITLE_CACHE", tmp_path / "title-cache.json")
+    monkeypatch.setattr(publish, "TITLE_MISSES", tmp_path / "title-misses.json")
     return tmp_path / "title-cache.json"
 
 
@@ -241,6 +242,7 @@ def test_title_map_negative_caches_404s(title_cache, monkeypatch, capsys):
     daily run spams the log and wastes API calls. One 404 = cached miss."""
     monkeypatch.setattr(publish.kalshi, "get_market", http404)
     monkeypatch.setattr(publish.kalshi, "get_event", http404)
+    monkeypatch.setattr(publish.kalshi, "get_series", http404)
     publish.title_map(["KXDEAD-26AUG"], {})
     assert "! title KXDEAD-26AUG" in capsys.readouterr().out
     calls = []
