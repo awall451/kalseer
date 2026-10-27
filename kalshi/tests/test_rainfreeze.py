@@ -73,6 +73,7 @@ def apis(tmp_path, monkeypatch):
     monkeypatch.setattr(rainfreeze.wx, "_get", nws)
     monkeypatch.setattr(rainfreeze.kalshi, "get_market", market)
     monkeypatch.setattr(rainfreeze, "JOURNAL", tmp_path / "rain-freeze.jsonl")
+    monkeypatch.setattr(rainfreeze, "EXTRA", {})  # test_rainfreeze_extra.py
     return calls
 
 
