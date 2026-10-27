@@ -22,6 +22,12 @@ import paper
 PUBLIC = paper.DATA / "public"
 SERIES_CACHE = paper.DATA / "series-cache.json"
 TITLE_CACHE = paper.DATA / "title-cache.json"
+TITLE_MISSES = paper.DATA / "title-misses.json"
+MISS_DAYS = 7  # a 404 title miss is retried once it is this old
+
+
+def _today() -> str:
+    return dt.date.today().isoformat()
 
 
 def slugify(title: str) -> str:
@@ -55,11 +61,20 @@ def title_map(tickers, hist) -> dict:
     shows gets a title. Marks history already carries titles for anything
     we ever held; everything else (e.g. considered-but-passed tickers) is
     fetched once from the API — settled markets stay queryable — and
-    cached on disk.
+    cached on disk. A 404 on the market, event and series lookups is a miss,
+    dated in TITLE_MISSES and retried once it is MISS_DAYS old (an empty
+    title left in the cache by older runs is an undated miss, retried now).
     """
     cache = {}
     if TITLE_CACHE.exists():
         cache = json.loads(TITLE_CACHE.read_text())
+    misses = {}
+    if TITLE_MISSES.exists():
+        misses = json.loads(TITLE_MISSES.read_text())
+    cache = {t: v for t, v in cache.items() if v}
+    today = _today()
+    stale = (dt.date.fromisoformat(today)
+             - dt.timedelta(days=MISS_DAYS)).isoformat()
     titles = {}
     for t, ms in hist.items():
         for m in reversed(ms):
@@ -71,30 +86,42 @@ def title_map(tickers, hist) -> dict:
     for t in sorted({tk for tk in tickers if tk}):
         if titles.get(t):
             continue
-        if t in cache:  # hit — an empty value is a remembered 404 miss
-            if cache[t]:
-                titles[t] = cache[t]
+        if t in cache:
+            titles[t] = cache[t]
+            continue
+        if misses.get(t, "") > stale:  # a recent 404: don't ask every run
             continue
         if any(c in t for c in "*/ "):  # research notes, not real tickers
             continue
         try:
-            try:
-                title = kalshi.get_market(t, tries=1).get("title")
-            except urllib.error.HTTPError as e:
-                if e.code != 404:
-                    raise
-                # a pass logged on a whole ladder names the EVENT ticker
-                title = kalshi.get_event(t, tries=1).get("title")
-            titles[t] = (title or "").replace("*", "")
+            titles[t] = (_lookup_title(t) or "").replace("*", "")
+            misses.pop(t, None)
         except urllib.error.HTTPError as e:
             print(f"! title {t}: {e}")
-            if e.code == 404:  # delisted for good — stop asking every run
-                cache[t] = ""
+            if e.code == 404:  # likely delisted — ask again in MISS_DAYS
+                misses[t] = today
         except Exception as e:
             print(f"! title {t}: {e}")
     cache.update({t: v for t, v in titles.items() if v})
     TITLE_CACHE.write_text(json.dumps(cache, indent=1))
+    TITLE_MISSES.write_text(json.dumps(misses, indent=1))
     return {t: v for t, v in titles.items() if v}
+
+
+def _lookup_title(t: str) -> str | None:
+    """Market title, else event title (a pass logged on a whole ladder names
+    the EVENT ticker), else series title (or the whole series)."""
+    try:
+        return kalshi.get_market(t, tries=1).get("title")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    try:
+        return kalshi.get_event(t, tries=1).get("title")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    return kalshi.get_series(t, tries=1).get("title")
 
 
 def load_closed():

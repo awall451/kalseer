@@ -48,6 +48,7 @@ def test_event_title_is_cached_like_a_market_title(title_cache, monkeypatch):
 def test_both_404_is_still_a_cached_miss(title_cache, monkeypatch, capsys):
     monkeypatch.setattr(publish.kalshi, "get_market", http404)
     monkeypatch.setattr(publish.kalshi, "get_event", http404)
+    monkeypatch.setattr(publish.kalshi, "get_series", http404)
     assert publish.title_map(["KXDEAD-26AUG"], {}) == {}
     assert "! title KXDEAD-26AUG" in capsys.readouterr().out
     monkeypatch.setattr(publish.kalshi, "get_market", None)

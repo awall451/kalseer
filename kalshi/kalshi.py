@@ -80,8 +80,8 @@ def get_event(event_ticker: str, tries: int = 4) -> dict:
                 with_nested_markets=True)["event"]
 
 
-def get_series(series_ticker: str) -> dict:
-    return _get(f"/series/{series_ticker}")["series"]
+def get_series(series_ticker: str, tries: int = 4) -> dict:
+    return _get(f"/series/{series_ticker}", tries=tries)["series"]
 
 
 def get_orderbook(ticker: str, depth: int = 8, tries: int = 4) -> dict:
