@@ -5,12 +5,15 @@ is one of the busiest boards in every scan, and the judgment step passes on
 it every run because RCP is unreadable (403 server-side; operator item #20).
 Kalshi's settled expiration_values are the RCP series itself, one per day,
 so a no-change walk and the history's own daily moves can be frozen against
-the board every morning, like highfreeze.py for KXHIGH.
+the board every morning, like highfreeze.py for KXHIGH. The weekly board
+KXAPRPOTUS (RCP at 11 AM ET each Friday, 0.3-point buckets) settles on the
+same average, so it is frozen off the same daily history with k = the days
+from the newest settle to its Friday.
 
   python3 kalshi/approvefreeze.py freeze           # pipeline step
   python3 kalshi/approvefreeze.py score [--days N]  # vs Kalshi's results
 
-`freeze` appends one row per open KXTRUMPAPPROVE event to
+`freeze` appends one row per open KXTRUMPAPPROVE / KXAPRPOTUS event to
 $DATA/rcp/approve-freeze.jsonl: the newest settled value before the event's
 day (the base) and k, the days between them; every bucket's exact bid/ask
 strings; and two legs per bucket. RW is a normal around the base, sd = the
@@ -20,13 +23,16 @@ with bucket edges halfway between tenths ('less' 38.5 is 38.4 or below,
 trailing EMP_DAYS (90) that lands the base in the bucket, smoothed
 (n_in + 0.5) / (n + 1); under EMP_MIN (5) moves it is None. Without any
 history only the board is kept. Events the history already settles are
-skipped. Exit 1 only if nothing was journaled.
+skipped. A failed KXAPRPOTUS listing is reported and the daily board is still
+frozen. Exit 1 only if nothing was journaled.
 
 `score` reads the FIRST row per event (binding) and prints newest first: the
 settled value, and for BOARD (bucket mids, kalshi.board_mid), RW and EMP the
 probability on the winning bucket and the all-bucket Brier. A leg missing on
 any bucket (an empty or wide book for BOARD) is left out for that day. The
 summary gives each leg's mean Brier over the days where all three exist.
+KXAPRPOTUS rows follow in their own `# KXAPRPOTUS` section with their own
+summary; a weekly event's binding row is its first freeze, days out.
 """
 
 import datetime as dt
@@ -42,7 +48,9 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
 JOURNAL = DATA / "rcp" / "approve-freeze.jsonl"
 
-SERIES = "KXTRUMPAPPROVE"
+SERIES = "KXTRUMPAPPROVE"  # the daily board, and the history every board uses
+WEEKLY = "KXAPRPOTUS"      # Friday 11 AM ET, 0.3-point buckets, same RCP average
+BOARDS = (SERIES, WEEKLY)
 WINDOW = 30    # daily moves behind RW's sd
 SD_FLOOR = 0.5  # tenths: 0.05 points
 EMP_DAYS = 90  # trailing days of k-day moves behind EMP
@@ -160,8 +168,16 @@ def freeze() -> tuple[int, list[str]]:
     except Exception as e:
         print(f"approvefreeze: settled history failed: {e}", file=sys.stderr)
     by_event = {}
-    for m in kalshi.get_markets(series_ticker=SERIES, status="open"):
-        by_event.setdefault(m.get("event_ticker"), []).append(m)
+    for series in BOARDS:
+        try:
+            listed = kalshi.get_markets(series_ticker=series, status="open")
+        except Exception as e:
+            if series == SERIES:
+                raise
+            print(f"approvefreeze: {series} listing failed: {e}", file=sys.stderr)
+            continue
+        for m in listed:
+            by_event.setdefault(m.get("event_ticker"), []).append(m)
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     ok, failed, out = 0, [], []
     for event in sorted(e for e in by_event if e):
@@ -233,9 +249,19 @@ def score(days: int = 30):
     if not rows:
         print(f"# no freezes in {JOURNAL}")
         return
+    for series in BOARDS:
+        mine = [r for r in rows if r["event"].startswith(series + "-")]
+        if not mine:
+            continue
+        if series != SERIES:
+            print(f"# {series} (weekly, Friday 11 AM ET)")
+        _score_series(series, mine, days)
+
+
+def _score_series(series: str, rows: list[dict], days: int):
     since = (dt.date.fromisoformat(rows[-1]["date"])
              - dt.timedelta(days=days)).isoformat()
-    settled = kalshi.settled_markets(SERIES)
+    settled = kalshi.settled_markets(series)
     result = {m.get("ticker"): m.get("result") for m in settled}
     value = {m.get("event_ticker"): m.get("expiration_value") for m in settled
              if m.get("expiration_value") not in (None, "")}

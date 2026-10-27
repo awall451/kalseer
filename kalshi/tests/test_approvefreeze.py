@@ -57,10 +57,13 @@ BOARD26 = [mkt(E26, "U38.5", "less", None, 38.5, "0.3300", "0.3400"),
 def apis(tmp_path, monkeypatch):
     state = {"settled": settled_rows(), "open": list(BOARD26)}
     monkeypatch.setattr(af, "JOURNAL", tmp_path / "rcp" / "approve-freeze.jsonl")
+    def of(rows, series):
+        return [m for m in rows if m["event_ticker"].startswith(series + "-")]
+
     monkeypatch.setattr(af.kalshi, "settled_markets",
-                        lambda series, **kw: state["settled"])
+                        lambda series, **kw: of(state["settled"], series))
     monkeypatch.setattr(af.kalshi, "get_markets",
-                        lambda **kw: state["open"])
+                        lambda **kw: of(state["open"], kw["series_ticker"]))
     return state
 
 
@@ -179,3 +182,76 @@ def test_judgment_is_granted_the_scorer():
         "permissions"]["allow"]
     assert "Bash(python3 kalshi/approvefreeze.py *)" in allow
     assert "approvefreeze.py score" in (repo / "bin" / "daily-prompt.md").read_text()
+
+
+# KXAPRPOTUS: the weekly RCP board (Friday 11 AM ET, 0.3-point buckets).
+# It settles on the same RCP average, so the daily history is its base too.
+W30 = "KXAPRPOTUS-26OCT30"
+# the 10/30 board at ~06Z 10/27, as listed live
+WEEK30 = [mkt(W30, "39.5", "greater", 39.4, None, "0.0200", "0.0300"),
+          mkt(W30, "39.0", "between", 38.9, 39.1, "0.1500", "0.1600"),
+          mkt(W30, "38.7", "between", 38.6, 38.8, "0.2200", "0.2500"),
+          mkt(W30, "38.4", "between", 38.3, 38.5, "0.2800", "0.2900"),
+          mkt(W30, "37.6", "less", None, 37.7, "0.0300", "0.0400")]
+
+
+def test_weekly_buckets_follow_the_wording():
+    above, mid, below = (af.bucket(WEEK30[i]) for i in (0, 2, 4))
+    assert af.hits(above, 395) and not af.hits(above, 394)
+    assert af.hits(mid, 386) and af.hits(mid, 388) and not af.hits(mid, 389)
+    assert af.hits(below, 376) and not af.hits(below, 377)
+
+
+def test_freeze_journals_the_weekly_board_off_the_daily_history(apis, capsys):
+    apis["open"] = list(BOARD26) + WEEK30
+    ok, failed = af.freeze()
+    assert ok == 2 and failed == []
+    rows = {r["event"]: r for r in map(json.loads,
+                                       af.JOURNAL.read_text().splitlines())}
+    w = rows[W30]
+    assert w["date"] == "2026-10-30" and w["base_day"] == "2026-10-25"
+    assert w["base"] == "38.5" and w["k"] == 5
+    b = {x["ticker"]: x for x in w["buckets"]}
+    assert b[f"{W30}-38.4"]["RW"] > b[f"{W30}-39.5"]["RW"]
+    assert all(x["EMP"] is not None for x in w["buckets"])
+    assert W30 in capsys.readouterr().out
+
+
+def test_a_failed_weekly_listing_keeps_the_daily_freeze(apis, monkeypatch):
+    def get_markets(**kw):
+        if kw["series_ticker"] == "KXAPRPOTUS":
+            raise OSError("boom")
+        return list(BOARD26)
+    monkeypatch.setattr(af.kalshi, "get_markets", get_markets)
+    ok, failed = af.freeze()
+    assert ok == 1
+    (row,) = [json.loads(l) for l in af.JOURNAL.read_text().splitlines()]
+    assert row["event"] == E26
+
+
+def test_score_reports_the_weekly_board_in_its_own_section(apis, capsys):
+    apis["open"] = list(BOARD26) + WEEK30
+    af.freeze()
+    settled = settled_rows()
+    for m in BOARD26:
+        settled.append(dict(m, result="yes" if m["ticker"].endswith("-U38.5")
+                            else "no", expiration_value="38.4"))
+    for m in WEEK30:
+        settled.append(dict(m, result="yes" if m["ticker"].endswith("-38.4")
+                            else "no", expiration_value="38.3 to 38.5"))
+    apis["settled"] = settled
+    capsys.readouterr()
+    af.score()
+    out = capsys.readouterr().out
+    daily, weekly = out.split("# KXAPRPOTUS")
+    assert "2026-10-26  38.4" in daily and "# n=1 settled days" in daily
+    assert W30 not in daily
+    line = next(l for l in weekly.splitlines() if l.startswith("2026-10-30"))
+    assert "38.3 to 38.5" in line and "BOARD p 0.2850" in line
+    assert "# n=1 settled days" in weekly
+
+
+def test_score_without_weekly_rows_prints_the_daily_only(apis, capsys):
+    af.freeze()
+    af.score()
+    assert "KXAPRPOTUS" not in capsys.readouterr().out

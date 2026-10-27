@@ -117,6 +117,8 @@ approval-blocked (proven live 9/27).
    odds per bucket next to the board into `$DATA/rcp/approve-freeze.jsonl`;
    `python3 kalshi/approvefreeze.py score [--days N]` prints BOARD / RW / EMP
    winning-bucket p and Brier. Calibration only until it has a record.
+   The weekly RCP board (KXAPRPOTUS, Friday 11 AM ET) is frozen the same way
+   off the daily history and scored in its own `# KXAPRPOTUS` section.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
