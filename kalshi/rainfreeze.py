@@ -45,6 +45,12 @@ JOURNAL = DATA / "wx" / "rain-freeze.jsonl"
 
 # Grid points the watchlist's pre-regs use (cli-precip-day-boundary, 10/15)
 CITIES = {"DC": ("LWX", 97, 69), "NYC": ("OKX", 33, 37), "OKC": ("OUN", 94, 90)}
+# The busiest KXRAIN boards outside the family (24h volume 10/27: SEA 63k,
+# PHIL 56k, DEN 51k vs OKC 28k): the CLI station's coordinates, resolved to
+# a grid via NWS /points each run. Scored in their own `# extra` summary.
+EXTRA = {"SEA": (47.4447, -122.3136),   # CLISEA, Seattle-Tacoma Intl
+         "PHIL": (39.8733, -75.2268),   # CLIPHL, Philadelphia Intl
+         "DEN": (39.8466, -104.6562)}   # CLIDEN, Denver Intl
 PERIODS = 2
 Q4 = Decimal("0.0001")
 
@@ -83,15 +89,29 @@ def _next(city: str, day: str, periods: list[dict]) -> dict:
     return rec
 
 
+def _grid(city: str) -> tuple[str, int, int]:
+    """A family city's fixed grid, or an EXTRA city's from NWS /points."""
+    if city in CITIES:
+        return CITIES[city]
+    lat, lon = EXTRA[city]
+    p = wx._get(f"/points/{lat:.4f},{lon:.4f}")
+    p = p.get("properties") or p
+    return p["gridId"], int(p["gridX"]), int(p["gridY"])
+
+
 def freeze(today: str | None = None) -> tuple[int, list[str]]:
     """Append today's freeze per city. Returns (cities fully ok, failed)."""
     ok, failed, out = 0, [], []
-    for city, (office, x, y) in CITIES.items():
-        rec = {"city": city, "grid": f"{office} {x},{y}",
+    for city in [*CITIES, *EXTRA]:
+        rec = {"city": city, "grid": None,
                "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(
                    timespec="seconds")}
         periods = []
         try:
+            if city in EXTRA:
+                rec["grid"] = "points {:.4f},{:.4f}".format(*EXTRA[city])
+            office, x, y = _grid(city)
+            rec["grid"] = f"{office} {x},{y}"
             periods = _periods(wx._get(f"/gridpoints/{office}/{x},{y}/forecast"))
         except Exception as e:
             print(f"rainfreeze: {city}: NWS forecast failed: {e}",
@@ -169,6 +189,8 @@ def score(days: int = 14):
              - dt.timedelta(days=days)).isoformat()
     briers = {"RAW": [], "MKT": []}
     briers1 = {"RAW1": [], "MKT1": []}
+    xbriers = {"RAW": [], "MKT": []}
+    xbriers1 = {"RAW1": [], "MKT1": []}
     lines = []
     for key in keys:
         date, city = key
@@ -195,17 +217,21 @@ def score(days: int = 14):
             else:
                 parts.append(f"{leg} {shown}")
         if result in ("yes", "no"):
-            for tally in (briers, briers1):
+            for tally in ((briers, briers1) if city not in EXTRA
+                          else (xbriers, xbriers1)):
                 if all(leg in legs for leg in tally):
                     for leg in tally:
                         tally[leg].append((legs[leg] - (result == "yes")) ** 2)
         lines.append("  ".join(parts))
     for line in reversed(lines):
         print(line)
+    extra = "/".join(EXTRA)
     for label, what, tally in (
             ("", "both legs", briers),
             ("day-ahead ", "both day-ahead legs (frozen the day before)",
-             briers1)):
+             briers1),
+            ("extra ", f"both legs ({extra})", xbriers),
+            ("extra day-ahead ", f"both day-ahead legs ({extra})", xbriers1)):
         n = len(next(iter(tally.values())))
         if n:
             print(f"# {label}n={n} (city-days with {what} settled, "
@@ -218,7 +244,7 @@ def main(argv: list[str]):
     if argv[:1] == ["freeze"]:
         before = len(frozen_lines())
         ok, failed = freeze()
-        print(f"rainfreeze: {ok}/{len(CITIES)} cities frozen in full"
+        print(f"rainfreeze: {ok}/{len(CITIES) + len(EXTRA)} cities frozen in full"
               + (f"; failed: {' '.join(failed)}" if failed else ""))
         if len(frozen_lines()) == before:
             sys.exit(1)
