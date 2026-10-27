@@ -59,6 +59,10 @@ approval-blocked (proven live 9/27).
      wins) and prints tomorrow's forecasts plus the drift bar — use it
      instead of re-deriving the race by hand; `--settled` adds the
      KXAAAGASD/KXDIESELD finals for days the journal lacks (back to August).
+     `--moves K [--since YYYY-MM-DD] [--need C]` prints every K-print change
+     (min / p10 / median / p90 / max, top rises and falls) and how many
+     windows moved at least C cents (negative C: fell at least C); use it
+     instead of counting k-day windows by hand before a weekly trade.
      The pipeline's `fuelfreeze` step freezes every open KXAAAGASD/W/M and
      KXDIESELD/W strike's bid/ask plus RW / MOM / DRIFT P(print > strike)
      (k-print normal) into `$DATA/aaa/fuel-freeze.jsonl`, and its log lines
