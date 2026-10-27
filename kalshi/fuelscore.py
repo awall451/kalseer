@@ -11,6 +11,7 @@ including days a dead run never pre-registered.
   python3 kalshi/fuelscore.py regular --days 30   # more scored rows
   python3 kalshi/fuelscore.py regular --settled   # + KXAAAGASD/KXDIESELD
                                                   # finals the journal lacks
+  python3 kalshi/fuelscore.py diesel --moves 7 --since 2026-09-24 --need 7.08
 
   RW     tomorrow = today
   MOM    tomorrow = today + today's change
@@ -29,6 +30,13 @@ settled daily markets, whose expiration_value is the exact AAA print dated
 by the event ticker. The journal wins any day both hold; '# settled' reports
 how many days were added and any day the two disagree. Slow: it pages every
 settled strike (~1-2 min).
+
+--moves K replaces the race with the distribution of every K-day change
+whose two ends are both printed (never across a gap): min / p10 / median /
+p90 / max and mean in cents, the three largest rises and falls with their
+dates, and with --need C (cents) how many windows moved at least C (a
+negative C counts falls of at least |C|), smoothed (hits + 0.5) / (n + 1).
+--since keeps windows starting on or after that day (a regime cut).
 """
 
 import json
@@ -112,24 +120,77 @@ def _bar(prices: dict, day: str, window: int) -> str | None:
             f"bar {bar * CENT:.2f}c -> {verdict}")
 
 
+def moves(prices: dict, k: int,
+          since: str | None = None) -> list[tuple[str, str, Decimal]]:
+    """[(start, end, change)] for every k-day window with both ends
+    printed, oldest first; with `since`, only windows starting on or after
+    it."""
+    out = []
+    for day in sorted(prices):
+        end = _back(day, -k)
+        if end in prices and (since is None or day >= since):
+            out.append((day, end, prices[end] - prices[day]))
+    return out
+
+
+def _quantile(xs: list[Decimal], q: float) -> Decimal:
+    s = sorted(xs)
+    return s[round(q * (len(s) - 1))]
+
+
+def print_moves(grade: str, prices: dict, k: int, since: str | None,
+                need: Decimal | None):
+    got = moves(prices, k, since)
+    if not got:
+        print(f"# no {k}-print windows in {grade}"
+              + (f" since {since}" if since else ""))
+        return
+    ch = [c for _, _, c in got]
+    print(f"# {grade} {k}-print moves (windows starting {got[0][0]}.."
+          f"{got[-1][0]}): n={len(ch)}  "
+          + "  ".join(f"{name} {_quantile(ch, q) * CENT:+.2f}c"
+                      for name, q in (("min", 0), ("p10", 0.1),
+                                      ("median", 0.5), ("p90", 0.9),
+                                      ("max", 1)))
+          + f"  mean {sum(ch) / len(ch) * CENT:+.2f}c")
+    by = sorted(got, key=lambda w: w[2])
+    for name, ws in (("rises", by[::-1][:3]), ("falls", by[:3])):
+        print(f"# {name}: " + "  ".join(f"{c * CENT:+.2f}c {a}->{b}"
+                                        for a, b, c in ws))
+    if need is not None:
+        hit = sum(c >= need if need >= 0 else c <= need for c in ch)
+        print(f"# need {need * CENT:+.2f}c: {hit} of {len(ch)} windows "
+              f"reached it (smoothed {(hit + 0.5) / (len(ch) + 1):.2f})")
+
+
 def main(argv: list[str]):
     if not argv or argv[0] not in GRADES:
         sys.exit(__doc__)
     grade, window, days, opts = argv[0], 5, 10, argv[1:]
+    k = since = need = None
     use_settled = "--settled" in opts
     opts = [o for o in opts if o != "--settled"]
     if use_settled and grade not in SETTLED:
         sys.exit(f"--settled: no daily series for {grade} "
                  f"(only {', '.join(SETTLED)})")
     while opts:
-        if opts[0] in ("--window", "--days") and len(opts) > 1:
+        if (opts[0] in ("--window", "--days", "--moves", "--since", "--need")
+                and len(opts) > 1):
             if opts[0] == "--window":
                 window = int(opts[1])
-            else:
+            elif opts[0] == "--days":
                 days = int(opts[1])
+            elif opts[0] == "--moves":
+                k = int(opts[1])
+            elif opts[0] == "--since":
+                since = date.fromisoformat(opts[1]).isoformat()
+            else:
+                need = Decimal(opts[1]) / CENT
             opts = opts[2:]
         else:
             sys.exit(__doc__)
+    if k is not None and k < 1:
+        sys.exit("--moves: K must be at least 1")
     rows = series(grade)
     note = None
     if use_settled:
@@ -147,6 +208,11 @@ def main(argv: list[str]):
         print(f"# no {grade} prints in {JOURNAL}")
         return
     prices = dict(rows)
+    if k is not None:
+        if note:
+            print(note)
+        print_moves(grade, prices, k, since, need)
+        return
     errs = {m: [] for m in MODELS}
     wins = dict.fromkeys(MODELS, 0)
     lines = []
