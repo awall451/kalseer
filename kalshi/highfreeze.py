@@ -26,6 +26,9 @@ BIAS is RAW recentred on grid high minus the city's mean grid error over its
 last 7 earlier settled days in the window (none from the day itself, so no
 lookahead); it needs 3 such days. '# CITY:' lines give each city's grid bias,
 and the summary adds BIAS vs MKT mean Brier over the days that have both.
+
+EXTRA cities (the busiest boards outside the four) resolve their grid via
+NWS /points each run and are summarised on their own '# extra' line.
 """
 
 import datetime as dt
@@ -47,6 +50,13 @@ JOURNAL = DATA / "wx" / "high-freeze.jsonl"
 # CLIOKC, the stations of KXRAIN DC / OKC, so they reuse rainfreeze's grids)
 CITIES = {"LAX": ("LOX", 148, 41), "NY": ("OKX", 33, 37),
           "TDC": ("LWX", 97, 69), "TOKC": ("OUN", 94, 90)}
+# The busiest KXHIGH boards outside the family (24h volume 10/28: MIA 13.7k,
+# CHI 8.2k, AUS 7.5k vs TOKC 2.0k): the CLI station's coordinates, resolved
+# to a grid via NWS /points each run (as rainfreeze.EXTRA). Scored in their
+# own `# extra` summary.
+EXTRA = {"MIA": (25.7881, -80.3169),    # CLIMIA, Miami Intl
+         "CHI": (41.7861, -87.7524),    # CLIMDW, Chicago Midway
+         "AUS": (30.1831, -97.6799)}    # CLIAUS, Austin-Bergstrom
 SD = 3.0
 BIAS_N, BIAS_MIN = 7, 3  # BIAS leg: mean grid error of the last <=7, >=3
 
@@ -91,15 +101,29 @@ def raw_p(bucket: dict, high: float) -> float:
     return _cdf(hi + 0.5, high) - _cdf(lo - 0.5, high)
 
 
+def _grid(city: str) -> tuple[str, int, int]:
+    """A family city's fixed grid, or an EXTRA city's from NWS /points."""
+    if city in CITIES:
+        return CITIES[city]
+    lat, lon = EXTRA[city]
+    p = wx._get(f"/points/{lat:.4f},{lon:.4f}")
+    p = p.get("properties") or p
+    return p["gridId"], int(p["gridX"]), int(p["gridY"])
+
+
 def freeze(today: str | None = None) -> tuple[int, list[str]]:
     """Append today's freeze per city. Returns (cities fully ok, failed)."""
     ok, failed, out = 0, [], []
-    for city, (office, x, y) in CITIES.items():
-        rec = {"city": city, "grid": f"{office} {x},{y}",
+    for city in [*CITIES, *EXTRA]:
+        rec = {"city": city, "grid": None,
                "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(
                    timespec="seconds")}
         periods = []
         try:
+            if city in EXTRA:
+                rec["grid"] = "points {:.4f},{:.4f}".format(*EXTRA[city])
+            office, x, y = _grid(city)
+            rec["grid"] = f"{office} {x},{y}"
             periods = _periods(wx._get(f"/gridpoints/{office}/{x},{y}/forecast"))
         except Exception as e:
             print(f"highfreeze: {city}: NWS forecast failed: {e}",
@@ -193,9 +217,12 @@ def score(days: int = 14):
         return
     since = (dt.date.fromisoformat(rows[-1]["date"])
              - dt.timedelta(days=days)).isoformat()
-    errs, briers, lines = [], {"RAW": [], "MKT": []}, []
-    city_errs, bias_pairs = {}, []
+    # family / extra tallies: (grid errors, RAW+MKT briers, BIAS-vs-MKT pairs)
+    groups = {g: ([], {"RAW": [], "MKT": []}, []) for g in ("", "extra ")}
+    lines, city_errs = [], {}
     for r in rows:
+        errs, briers, bias_pairs = groups[
+            "extra " if r["city"] in EXTRA else ""]
         if r["date"] < since:
             continue
         try:
@@ -253,9 +280,17 @@ def score(days: int = 14):
         if e:
             print(f"# {city}: n={len(e)} grid bias {sum(e) / len(e):+.1f}F "
                   f"MAE {sum(map(abs, e)) / len(e):.1f}F")
+    for label, (errs, briers, bias_pairs) in groups.items():
+        _summary(label, days, errs, briers, bias_pairs)
+
+
+def _summary(label: str, days: int, errs: list, briers: dict,
+             bias_pairs: list):
     if errs:
         n = len(errs)
-        summary = (f"# n={n} settled city-days (last {days}d): grid bias "
+        what = (f"settled {'/'.join(EXTRA)} city-days" if label
+                else "settled city-days")
+        summary = (f"# {label}n={n} {what} (last {days}d): grid bias "
                    f"{sum(errs) / n:+.1f}F MAE {sum(map(abs, errs)) / n:.1f}F")
         if briers["RAW"]:
             summary += "  " + "  ".join(
@@ -272,7 +307,7 @@ def main(argv: list[str]):
     if argv[:1] == ["freeze"]:
         before = len(frozen_lines())
         ok, failed = freeze()
-        print(f"highfreeze: {ok}/{len(CITIES)} cities frozen in full"
+        print(f"highfreeze: {ok}/{len(CITIES) + len(EXTRA)} cities frozen in full"
               + (f"; failed: {' '.join(failed)}" if failed else ""))
         if len(frozen_lines()) == before:
             sys.exit(1)

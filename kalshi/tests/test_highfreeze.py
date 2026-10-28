@@ -75,6 +75,7 @@ def apis(tmp_path, monkeypatch):
     monkeypatch.setattr(highfreeze, "JOURNAL", tmp_path / "high-freeze.jsonl")
     monkeypatch.setattr(highfreeze, "CITIES", {"LAX": ("LOX", 148, 41),
                                                "NY": ("OKX", 33, 37)})
+    monkeypatch.setattr(highfreeze, "EXTRA", {})
     return calls
 
 
