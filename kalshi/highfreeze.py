@@ -156,6 +156,16 @@ def _leg(name: str, probs: list[float], won: list[bool]) -> tuple[str, float]:
             f"B {brier:.4f}"), brier
 
 
+def _settled_max(value: str) -> float | None:
+    """Kalshi's expiration_value as a number ('77.00'), or None when it is
+    the winning bucket's label instead ('70° to 71°': KXHIGHLAX-26OCT22,
+    settled after a CLI revision across the bucket edge)."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 HELD_HOURS = 24  # KXHIGH settles hours after close; a day later is a hold
 
 
@@ -202,13 +212,16 @@ def score(days: int = 14):
             lines.append(f"{r['date']}  {r['city']}  pending  {grid}"
                          + _held(markets))
             continue
-        actual = float(values[0])
-        parts = [r["date"], r["city"], f"{actual:g}"]
+        actual = _settled_max(values[0])
+        parts = [r["date"], r["city"],
+                 f"{actual:g}" if actual is not None else values[0]]
         prior = city_errs.setdefault(r["city"], [])[-BIAS_N:]
-        if high is not None:
+        if high is not None and actual is not None:
             errs.append(high - actual)
             city_errs[r["city"]].append(high - actual)
             parts.append(f"{grid} err {high - actual:+g}")
+        elif high is not None:
+            parts.append(f"{grid} err -  (bucket label: no grid error)")
         else:
             parts.append(grid)
         won = [result.get(b["ticker"]) == "yes" for b in buckets]
