@@ -135,6 +135,9 @@ approval-blocked (proven live 9/27).
    The pipeline's `portwatch` step journals Hormuz first prints and later
    revisions daily; `python3 kalshi/portwatch.py first [--since D]` reads
    them offline (no quota) — Kalshi settles on the first print.
+   An `arcgis error` is the server's answer, not your arguments (an unknown
+   `--port` returns zero rows). `first` ends with the newest journaled day
+   and its lag, flagged STALE when a weekly batch is overdue.
    The pipeline's `futures` step journals each settled RBOB/ULSD day and any
    later revision; `python3 kalshi/futures.py first rbob|ulsd [--since D]`
    reads first-seen vs latest closes offline (a revised day is unverified).

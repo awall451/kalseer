@@ -42,6 +42,9 @@ QUERY_URL = ("https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/"
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
+# Weekly publication leaves the newest day <= ~10 days old (10/19: 10/11,
+# lag 8d); past this the journal is missing at least one weekly batch.
+STALE_DAYS = 12
 
 
 def _query(params: dict, tries: int = 2) -> dict:
@@ -61,7 +64,13 @@ def _query(params: dict, tries: int = 2) -> dict:
         # quota exhaustion lands here (HTTP 200); retrying inside the same
         # minute only deepens the hole — report and stop
         msg = body["error"].get("message", str(body["error"]))
-        print(f"portwatch: arcgis error: {msg}", file=sys.stderr)
+        code = body["error"].get("code", "?")
+        # 10/27: 'Invalid URL' read as a bad --port, but an unknown port is
+        # a LIKE filter answering zero rows; an error body is the server's
+        print(f"portwatch: arcgis error {code}: {msg} (the server's answer "
+              f"to this query, not a bad --port, which returns zero rows; "
+              f"final for this attempt, the daily archive retries "
+              f"tomorrow)", file=sys.stderr)
         sys.exit(2)
     return body
 
@@ -100,6 +109,24 @@ def _read(port: str) -> list[dict]:
     if not path.exists():
         return []
     return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+
+
+def _today() -> datetime.date:
+    return datetime.datetime.now(tz=datetime.timezone.utc).date()
+
+
+def freshness(port: str) -> str:
+    """'newest journaled day D (lag Nd)', flagged STALE past STALE_DAYS."""
+    days = [r["date"] for r in _read(port)]
+    if not days:
+        return "no journaled days"
+    newest = max(days)
+    lag = (_today() - datetime.date.fromisoformat(newest)).days
+    text = f"newest journaled day {newest} (lag {lag}d)"
+    if lag > STALE_DAYS:
+        text += (f" STALE (>{STALE_DAYS}d; PortWatch publishes weekly, so "
+                 f"a first print is overdue)")
+    return text
 
 
 def archive(port: str) -> tuple[int, int]:
@@ -146,6 +173,7 @@ def print_first(port: str, since: str | None):
     revised = sum(latest[d] != first[d] for d in days)
     print(f"# {revised} of {len(days)} days revised since first print "
           f"(Kalshi settles on the first)")
+    print(f"# {freshness(port)}")
 
 
 def main(argv: list[str]):
@@ -166,9 +194,10 @@ def main(argv: list[str]):
             if e.code != 2:
                 raise
             print(f"portwatch archive: {port}: skipped (arcgis error, "
-                  f"final for this run)")
+                  f"final for this run); {freshness(port)}")
             return
-        print(f"portwatch archive: {port}: {new} new days, {revised} revised")
+        print(f"portwatch archive: {port}: {new} new days, {revised} revised;"
+              f" {freshness(port)}")
         return
     if argv[0] == "first":
         print_first(port, since)
