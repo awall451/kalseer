@@ -123,6 +123,9 @@ approval-blocked (proven live 9/27).
    A `HELD` tag on a pending row means Kalshi closed the event over a day ago
    without settling it (e.g. a CLI max revised across a bucket edge). That day
    is out of every summary until it settles, so don't score it by hand.
+   If it settles on a bucket label ('70° to 71°') rather than a number, score
+   takes the newest final archived CLI max when it lands in that bucket, and
+   tags the row `(CLI max: …)`.
    RCP approval (KXTRUMPAPPROVE) is unreadable at the source, but Kalshi's
    settled values are the series: the `approvefreeze` step freezes RW (normal
    around yesterday's settled value) and EMP (the history's own k-day moves)
