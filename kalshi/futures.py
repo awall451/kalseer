@@ -42,6 +42,8 @@ the contract whose close it equals (`month ?` = neither). Brief 10/24: the
 contract month' line means the continuous series hopped months inside the
 window. `archive` also journals both months as <alias>-<code> (ulsd-Z26),
 readable with `first ulsd-Z26`; a contract failure never fails the step.
+For EXPIRED_DAYS after an expiry it keeps journaling the expired month too:
+its final settle lands after expiry day's ~12Z run (HOX26, Fri 10/30).
 Yahoo's close is its own feed, not the CME settlement file: cross-check one
 day against a quoted settle (FreightWaves: ULSD 4.9344 on 10/13) before
 leaning on the levels. An error body or an unexpected shape is a loud exit.
@@ -70,6 +72,7 @@ ALIASES = {
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
 ARCHIVE = ("rbob", "ulsd")  # the gas and diesel boards' wholesale drivers
+EXPIRED_DAYS = 7  # archive keeps an expired month this long (a dead weekend)
 
 # Explicit contract months behind the continuous RB=F/HO=F (brief 10/24: the
 # 10/23 bars and last trade came from different months around the Nov roll)
@@ -210,12 +213,16 @@ def _main_archive(argv: list[str]):
                 failed.append(name)
                 continue
             print(f"futures archive: {name}: {new} new days, {revised} revised")
-        # the front and next months, contract-consistent across the roll;
-        # extras, so a failure here never fails the step
-        front = front_month(datetime.datetime.fromtimestamp(
-            _now(), datetime.UTC).date())
+        # the front and next months, contract-consistent across the roll,
+        # plus a month that expired within EXPIRED_DAYS (its final settle
+        # lands after expiry day's ~12Z run); extras, so a failure here
+        # never fails the step
+        today = datetime.datetime.fromtimestamp(_now(), datetime.UTC).date()
+        front = front_month(today)
+        yms = sorted({front_month(today - datetime.timedelta(days=EXPIRED_DAYS)),
+                      front, _add_month(*front)})
         for name in ARCHIVE:
-            for ym in (front, _add_month(*front)):
+            for ym in yms:
                 month = f"{name}-{_code(*ym)}"
                 label = f"{month} ({contract(name, *ym)})"
                 try:
