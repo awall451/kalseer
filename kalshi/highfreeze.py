@@ -20,7 +20,10 @@ source the series names), the grid's error, and for RAW (normal around the
 grid high, sd 3F, integer-degree bucket edges) and MKT (bucket mids) the
 probability on the winning bucket and the all-bucket Brier. A bucket with an
 empty or wider-than-0.20 book has no mid (kalshi.board_mid), so that day has
-no MKT leg.
+no MKT leg. When Kalshi settles with the winning bucket's label instead of
+a number ('70° to 71°'), the settled max is the newest final archived CLI
+(wx.py archive) for the board's station, if it lands in that bucket; such
+rows are tagged '(CLI max: …)'.
 
 BIAS is RAW recentred on grid high minus the city's mean grid error over its
 last 7 earlier settled days in the window (none from the day itself, so no
@@ -36,6 +39,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import sys
 
 import kalshi
@@ -57,6 +61,10 @@ CITIES = {"LAX": ("LOX", 148, 41), "NY": ("OKX", 33, 37),
 EXTRA = {"MIA": (25.7881, -80.3169),    # CLIMIA, Miami Intl
          "CHI": (41.7861, -87.7524),    # CLIMDW, Chicago Midway
          "AUS": (30.1831, -97.6799)}    # CLIAUS, Austin-Bergstrom
+# The CLI each board settles on (Kalshi's rules, op-10-18/-28), as archived by
+# wx.py under $DATA/wx/cli/<LOC>/: the bucket-label fallback reads it
+CLI_STATION = {"LAX": "LAX", "NY": "NYC", "TDC": "DCA", "TOKC": "OKC",
+               "MIA": "MIA", "CHI": "MDW", "AUS": "AUS"}
 SD = 3.0
 BIAS_N, BIAS_MIN = 7, 3  # BIAS leg: mean grid error of the last <=7, >=3
 
@@ -190,6 +198,49 @@ def _settled_max(value: str) -> float | None:
         return None
 
 
+SUMMARY = re.compile(r"SUMMARY FOR ([A-Z]+ +\d+ +\d{4})(.*?)CLIMATE NORMAL",
+                     re.S)
+MAXIMUM = re.compile(r"^ +MAXIMUM +(\d+)R?\s", re.M)
+
+
+def cli_max(city: str, day: str) -> int | None:
+    """The max of the newest FINAL archived CLI for the city's station and
+    day, or None. Preliminary reports ('VALID TODAY AS OF 0500 PM', 'VALID
+    AS OF 1100 AM') don't count; a revision does (CLILAX 10/22: 72 at 08:48Z,
+    71 at 23:44Z). The archive sits beside JOURNAL, so a test journal
+    brings its own."""
+    folder = JOURNAL.parent / "cli" / CLI_STATION.get(city, city)
+    best = None
+    for f in folder.glob("*.json"):
+        try:
+            p = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        text = p.get("productText") or ""
+        m = SUMMARY.search(text)
+        if not m or "VALID" in m.group(2):
+            continue
+        try:
+            when = dt.datetime.strptime(" ".join(m.group(1).split()),
+                                        "%B %d %Y").date().isoformat()
+        except ValueError:
+            continue
+        issued = p.get("issuanceTime") or ""
+        if when == day and (best is None or issued > best[0]):
+            best = (issued, MAXIMUM.search(text))
+    return int(best[1].group(1)) if best and best[1] else None
+
+
+def _in_bucket(value: float, bucket: dict) -> bool:
+    """Whole-degree membership, as raw_p reads the strikes."""
+    kind, lo, hi = bucket["strike_type"], bucket["floor"], bucket["cap"]
+    if kind == "less":
+        return value < hi
+    if kind == "greater":
+        return value > lo
+    return lo <= value <= hi
+
+
 HELD_HOURS = 24  # KXHIGH settles hours after close; a day later is a hold
 
 
@@ -240,18 +291,28 @@ def score(days: int = 14):
                          + _held(markets))
             continue
         actual = _settled_max(values[0])
+        won = [result.get(b["ticker"]) == "yes" for b in buckets]
+        # a bucket label: the newest final CLI max, if it is in the winner
+        note, why = "", "bucket label: no grid error"
+        if actual is None and high is not None:
+            cli = cli_max(r["city"], r["date"])
+            winner = [b for b, y in zip(buckets, won) if y]
+            if cli is not None and winner and _in_bucket(cli, winner[0]):
+                actual = cli
+                note = f"  (CLI max: Kalshi settled '{values[0]}')"
+            elif cli is not None:
+                why = f"bucket label; CLI max {cli} outside it: no grid error"
         parts = [r["date"], r["city"],
                  f"{actual:g}" if actual is not None else values[0]]
         prior = city_errs.setdefault(r["city"], [])[-BIAS_N:]
         if high is not None and actual is not None:
             errs.append(high - actual)
             city_errs[r["city"]].append(high - actual)
-            parts.append(f"{grid} err {high - actual:+g}")
+            parts.append(f"{grid} err {high - actual:+g}{note}")
         elif high is not None:
-            parts.append(f"{grid} err -  (bucket label: no grid error)")
+            parts.append(f"{grid} err -  ({why})")
         else:
             parts.append(grid)
-        won = [result.get(b["ticker"]) == "yes" for b in buckets]
         legs = {}
         if buckets and high is not None:
             legs["RAW"] = [raw_p(b, high) for b in buckets]
