@@ -11,6 +11,7 @@
       "Bash(python3 kalshi/highfreeze.py *)",
       "Bash(python3 kalshi/fuelfreeze.py *)",
       "Bash(python3 kalshi/approvefreeze.py *)",
+      "Bash(python3 kalshi/econfreeze.py *)",
       "Bash(python3 kalshi/portwatch.py *)",
       "Bash(python3 kalshi/votehub.py *)",
       "Bash(python3 kalshi/bls.py *)",
