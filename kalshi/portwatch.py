@@ -16,7 +16,8 @@ verified working 8/9–8/24:
 Source hazards this tool respects (watchlist, econ-data-source-hazards):
 HAZARD 1b — the endpoint sits behind a SHARED public per-minute quota; an
 ArcGIS error arrives as an HTTP-200 JSON body and is a final answer for the
-attempt, never retried inside a run. HAZARD 1c — PortWatch revises upward
+attempt, never retried inside the same minute (`archive`, unattended,
+retries once after RETRY_WAIT; `calls` never sleeps). HAZARD 1c — PortWatch revises upward
 and Kalshi settles on the FIRST print: n_total prints verbatim; record the
 values you saw. Zero rows is a publication answer (the mostly-published
 window rule gates on lag), not a fetch failure.
@@ -45,6 +46,9 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
 # Weekly publication leaves the newest day <= ~10 days old (10/19: 10/11,
 # lag 8d); past this the journal is missing at least one weekly batch.
 STALE_DAYS = 12
+# The archive's one retry after an arcgis error waits out the shared quota
+# minute (HAZARD 1b); 10/27 and 10/29 skipped on errors 10/28 didn't repeat.
+RETRY_WAIT = 65
 
 
 def _query(params: dict, tries: int = 2) -> dict:
@@ -69,8 +73,8 @@ def _query(params: dict, tries: int = 2) -> dict:
         # a LIKE filter answering zero rows; an error body is the server's
         print(f"portwatch: arcgis error {code}: {msg} (the server's answer "
               f"to this query, not a bad --port, which returns zero rows; "
-              f"final for this attempt, the daily archive retries "
-              f"tomorrow)", file=sys.stderr)
+              f"final for this attempt; the daily archive retries once "
+              f"{RETRY_WAIT}s later, then tomorrow)", file=sys.stderr)
         sys.exit(2)
     return body
 
@@ -188,16 +192,25 @@ def main(argv: list[str]):
         else:
             sys.exit(__doc__)
     if argv[0] == "archive":
-        try:
-            new, revised = archive(port)
-        except SystemExit as e:
-            if e.code != 2:
-                raise
-            print(f"portwatch archive: {port}: skipped (arcgis error, "
-                  f"final for this run); {freshness(port)}")
-            return
-        print(f"portwatch archive: {port}: {new} new days, {revised} revised;"
-              f" {freshness(port)}")
+        # unattended, so it can sleep out the quota minute once; `calls`
+        # (the judgment step's) never does
+        retried = ""
+        for attempt in range(2):
+            try:
+                new, revised = archive(port)
+                break
+            except SystemExit as e:
+                if e.code != 2:
+                    raise
+                if attempt:
+                    print(f"portwatch archive: {port}: skipped (arcgis error "
+                          f"twice, {RETRY_WAIT}s apart; final for this run);"
+                          f" {freshness(port)}")
+                    return
+                time.sleep(RETRY_WAIT)
+                retried = " (after one retry)"
+        print(f"portwatch archive: {port}: {new} new days, {revised} revised"
+              f"{retried}; {freshness(port)}")
         return
     if argv[0] == "first":
         print_first(port, since)
