@@ -134,6 +134,11 @@ approval-blocked (proven live 9/27).
    winning-bucket p and Brier. Calibration only until it has a record.
    The weekly RCP board (KXAPRPOTUS, Friday 11 AM ET) is frozen the same way
    off the daily history and scored in its own `# KXAPRPOTUS` section.
+   The `econfreeze` step journals the nearest open payrolls/U-3/CPI board
+   (KXPAYROLLS, KXU3, KXCPI, KXCPICORE, KXCPIYOY, KXCPICOREYOY) every morning.
+   `python3 kalshi/econfreeze.py moves [PREFIX]` prints each strike's mid by
+   T-n plus the first-to-newest move, so the T-5 -> T-1 board move is already
+   recorded. `score [PREFIX]` gives the board's Brier by days out once settled.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its

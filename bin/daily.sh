@@ -182,6 +182,9 @@ run_step fuelfreeze python3 kalshi/fuelfreeze.py freeze
 # And for RCP approval (unreadable source): RW/EMP bucket odds off Kalshi's
 # own settled values vs the board, scored once each day settles (10/26).
 run_step approvefreeze python3 kalshi/approvefreeze.py freeze
+# And for the payrolls/CPI ladders: the nearest board per series every day,
+# so the T-5 -> T-1 board move is journaled, not hand-copied (10/30).
+run_step econfreeze python3 kalshi/econfreeze.py freeze
 
 run_step settle  python3 kalshi/paper.py settle
 run_step scan    python3 kalshi/scanner.py --days 7 --min-volume 1000
