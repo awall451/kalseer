@@ -43,6 +43,7 @@ def journal(tmp_path, monkeypatch):
 def error_reply(monkeypatch, body):
     monkeypatch.setattr(portwatch.urllib.request, "urlopen",
                         lambda req, timeout=30: FakeResponse(body))
+    monkeypatch.setattr(portwatch.time, "sleep", lambda s: None)
 
 
 def test_error_names_the_server_not_the_arguments(monkeypatch, capsys):

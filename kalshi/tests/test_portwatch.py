@@ -261,6 +261,7 @@ def test_archive_quota_error_skips_without_failing_the_pipeline(
     # failing the step would page the human for the shared endpoint's load
     monkeypatch.setattr(portwatch.urllib.request, "urlopen",
                         lambda req, timeout=30: FakeResponse(QUOTA_ERROR))
+    monkeypatch.setattr(portwatch.time, "sleep", lambda s: None)
     portwatch.main(["archive"])
     assert "skipped" in capsys.readouterr().out
     assert not archive_dir.exists()
