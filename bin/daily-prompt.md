@@ -251,6 +251,8 @@ Carry all of this in the relevant watchlist item:
   `python3 kalshi/prereg.py point EVENT MINE 4.2530`; for KXAAAGASD/KXDIESELD
   `score` races it against fuelscore's RW / MOM / DRIFT for you, off today's
   journal print even before Kalshi settles it (gas/diesel ladders too).
+  A KXHORMUZWEEKLY pre-reg likewise scores off the PortWatch journal's
+  first-print week sum once all 7 days are published.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.

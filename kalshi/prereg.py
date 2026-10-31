@@ -36,6 +36,13 @@ exact AAA print of the event's date, so until Kalshi settles one, `score`
 uses the journal's print for that day, marked "(AAA journal, Kalshi
 unsettled)": a point's error, or a ladder's 'above' strikes (a print exactly
 on a strike waits for Kalshi).
+
+KXHORMUZWEEKLY settles on the sum of PortWatch's daily transit calls over
+the 7 days ending on the event's date, no earlier than the Tuesday after;
+the pipeline journals those first prints that morning. Once all 7 days are
+journaled, `score` uses their first-print sum the same way, marked
+"(PortWatch journal, Kalshi unsettled)" (it matched Kalshi on every fully
+journaled week, 9/20..10/25).
 """
 
 import json
@@ -48,11 +55,13 @@ from decimal import Decimal, InvalidOperation
 import fuelfreeze
 import fuelscore
 import kalshi
+import portwatch
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
 JOURNAL = DATA / "preregs.jsonl"
 FUEL_WINDOW = 5  # fuelscore's default DRIFT window
+HORMUZ = "KXHORMUZWEEKLY"  # weekly sum of PortWatch daily transit calls
 
 
 def _now() -> datetime:
@@ -139,13 +148,40 @@ def _journal_print(event: str) -> Decimal | None:
     return found[1].get(found[0].isoformat()) if found else None
 
 
-def _journal_outcomes(event: str, tickers, result: dict):
-    """(print, {ticker: YES?}) for a fuel ladder off the journal print, or
-    None: no print yet, a strike that isn't 'above', or a print exactly on
-    one (left to Kalshi)."""
-    actual = _journal_print(event)
-    if actual is None:
+def _hormuz_week(event: str) -> Decimal | None:
+    """The first-print sum over the 7 days a Hormuz weekly event ends on,
+    or None until PortWatch has published every one of them."""
+    try:
+        end = datetime.strptime(event.split("-")[1], "%y%b%d").date()
+        first = {}
+        for r in portwatch._read("Hormuz"):
+            first.setdefault(r["date"], r["n_total"])  # Kalshi's: the first
+    except (IndexError, ValueError, OSError):
         return None
+    days = [(end - timedelta(days=i)).isoformat() for i in range(7)]
+    if any(first.get(d) is None for d in days):
+        return None
+    return sum(Decimal(str(first[d])) for d in days)
+
+
+def _journal_value(event: str):
+    """(value, source) an unsettled event will settle on, off our own
+    journal, or None: not a journaled family, or not published yet."""
+    if event.split("-")[0] == HORMUZ:
+        value, source = _hormuz_week(event), "PortWatch journal"
+    else:
+        value, source = _journal_print(event), "AAA journal"
+    return None if value is None else (value, source)
+
+
+def _journal_outcomes(event: str, tickers, result: dict):
+    """(value, {ticker: YES?}, source) for a ladder off the journal value,
+    or None: no value yet, a strike that isn't 'above', or a value exactly
+    on one (left to Kalshi)."""
+    found = _journal_value(event)
+    if found is None:
+        return None
+    actual, source = found
     out = {}
     for t in tickers:
         m = result.get(t) or {}
@@ -156,7 +192,7 @@ def _journal_outcomes(event: str, tickers, result: dict):
         if actual == floor:
             return None
         out[t] = actual > floor
-    return actual, out
+    return actual, out, source
 
 
 def add(event: str, leg: str, probs: dict[str, float],
@@ -235,8 +271,8 @@ def score(days: int = 30, prefix: str = ""):
             if not found:
                 lines.append(f"{head}  pending")
                 continue
-            value, yes = found
-            source = "  (AAA journal, Kalshi unsettled)"
+            value, yes, source = found
+            source = f"  ({source}, Kalshi unsettled)"
         mine = board = 0.0
         for t, p in r["probs"].items():
             y = yes[t]
@@ -285,10 +321,11 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
     if actual is None:
         # the run journals the print minutes before judgment; Kalshi
         # settles hours later on that exact print
-        actual = _journal_print(r["event"])
-        if actual is None:
+        found = _journal_value(r["event"])
+        if found is None:
             return f"{head}  pending"
-        source = "  (AAA journal, Kalshi unsettled)"
+        actual, source = found
+        source = f"  ({source}, Kalshi unsettled)"
     models = _fuel_models(r["event"])
     if models:
         actual = actual.quantize(Decimal("0.0001"))
