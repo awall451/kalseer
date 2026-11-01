@@ -54,6 +54,9 @@ JOURNAL = DATA / "aaa" / "prints.jsonl"
 
 GRADES = ("regular", "mid_grade", "premium", "diesel")
 MODELS = ("RW", "MOM", "DRIFT")
+# WKDAY is log-only (never in MODELS, so the race's wins don't move); each
+# weekday needs this many observed changes before it scales a forecast
+WKDAY_MIN = 3
 CENT = Decimal(100)
 SETTLED = {"regular": "KXAAAGASD", "diesel": "KXDIESELD"}
 
@@ -106,6 +109,26 @@ def forecasts(prices: dict, day: str, window: int) -> dict:
     return {"RW": last,
             "MOM": last + mom[0] if mom else None,
             "DRIFT": last + sum(drift) / window if drift else None}
+
+
+def wkday(prices: dict, day: str) -> Decimal | None:
+    """Log-only WKDAY forecast for the day after `day`: today's change
+    scaled by the mean |change| on tomorrow's weekday over today's, from
+    changes ending on or before `day` (None short of WKDAY_MIN of each)."""
+    last, mom = prices.get(day), _changes(prices, day, 1)
+    if last is None or not mom:
+        return None
+    seen = {}
+    for d in prices:
+        ch = _changes(prices, d, 1) if d <= day else None
+        if ch:
+            seen.setdefault(date.fromisoformat(d).weekday(), []).append(
+                abs(ch[0]))
+    today = date.fromisoformat(day).weekday()
+    a, b = seen.get(today, []), seen.get((today + 1) % 7, [])
+    if min(len(a), len(b)) < WKDAY_MIN or not sum(a):
+        return None
+    return last + mom[0] * (sum(b) / len(b)) / (sum(a) / len(a))
 
 
 def _bar(prices: dict, day: str, window: int) -> str | None:
@@ -215,14 +238,19 @@ def main(argv: list[str]):
         return
     errs = {m: [] for m in MODELS}
     wins = dict.fromkeys(MODELS, 0)
-    lines = []
+    lines, wk = [], []
     for day, actual in rows[1:]:
         fc = forecasts(prices, _back(day, 1), window)
+        w = wkday(prices, _back(day, 1))
         parts = [day, f"{actual}"]
         for m in MODELS:
             parts.append(f"{m} -" if fc[m] is None else
                          f"{m} {fc[m]:.4f} {(actual - fc[m]) * CENT:+.2f}")
+        parts.append("WKDAY -" if w is None else
+                     f"WKDAY {w:.4f} {(actual - w) * CENT:+.2f}")
         lines.append("  ".join(parts))
+        if w is not None and fc["MOM"] is not None:
+            wk.append((abs(actual - w) * CENT, abs(actual - fc["MOM"]) * CENT))
         if None not in fc.values():
             e = {m: abs(actual - fc[m]) * CENT for m in MODELS}
             best = min(e.values())
@@ -243,6 +271,19 @@ def main(argv: list[str]):
     bar = _bar(prices, last, window)
     print(f"# next {_back(last, -1)}: " + "  ".join(nxt)
           + (f" | {bar}" if bar else ""))
+    w = wkday(prices, last)
+    text = f"# log-only WKDAY (not in the race): n={len(wk)}"
+    if wk:
+        text += (f" WKDAY MAE {sum(a for a, _ in wk) / len(wk):.3f}c vs MOM "
+                 f"MAE {sum(b for _, b in wk) / len(wk):.3f}c on the same "
+                 f"days; closer than MOM {sum(a < b for a, b in wk)}, MOM "
+                 f"closer {sum(a > b for a, b in wk)}, tied "
+                 f"{sum(a == b for a, b in wk)}")
+    else:
+        text += f" (each weekday needs {WKDAY_MIN} observed changes)"
+    if w is not None:
+        text += f"; next {_back(last, -1)} WKDAY {w:.4f}"
+    print(text)
 
 
 if __name__ == "__main__":

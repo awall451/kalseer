@@ -59,6 +59,10 @@ approval-blocked (proven live 9/27).
      wins) and prints tomorrow's forecasts plus the drift bar — use it
      instead of re-deriving the race by hand; `--settled` adds the
      KXAAAGASD/KXDIESELD finals for days the journal lacks (back to August).
+     It also scores a log-only WKDAY (MOM scaled by tomorrow's weekday's
+     mean |change| over today's) against MOM on its own `# log-only` line;
+     WKDAY never enters the race's MAE/wins. Read a weekday-effect falsifier
+     off that line, not hand arithmetic.
      `--moves K [--since YYYY-MM-DD] [--need C]` prints every K-print change
      (min / p10 / median / p90 / max, top rises and falls) and how many
      windows moved at least C cents (negative C: fell at least C); use it
