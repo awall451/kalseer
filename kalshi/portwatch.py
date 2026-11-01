@@ -11,6 +11,7 @@ verified working 8/9–8/24:
   python3 kalshi/portwatch.py calls --since 2026-09-01
   python3 kalshi/portwatch.py calls --port Suez
   python3 kalshi/portwatch.py archive [--port NAME]       # pipeline step
+  python3 kalshi/portwatch.py archive --late   # again, only if today's skipped
   python3 kalshi/portwatch.py first [--since D] [--port NAME]  # offline
 
 Source hazards this tool respects (watchlist, econ-data-source-hazards):
@@ -26,7 +27,11 @@ window rule gates on lag), not a fetch failure.
 appends to $DATA/portwatch/<port>.jsonl every day it hasn't seen (the first
 print, i.e. the settlement value) and every later change to a seen day
 (`revised_from`). `first` reads that journal back with no network and no
-quota: first and latest n_total per day, newest first.
+quota: first and latest n_total per day, newest first. A successful archive
+stamps today's UTC date in $DATA/portwatch/<port>.archived; `archive --late`
+(daily.sh, after the judgment step) queries only when today has no stamp,
+a second chance minutes after a morning that skipped on arcgis errors
+(10/27, 10/29, 10/31).
 """
 
 import datetime
@@ -180,21 +185,35 @@ def print_first(port: str, since: str | None):
     print(f"# {freshness(port)}")
 
 
+def _stamp(port: str) -> pathlib.Path:
+    """Holds the UTC date of the last archive that got an answer."""
+    return _journal(port).with_suffix(".archived")
+
+
 def main(argv: list[str]):
     if argv[:1] not in (["calls"], ["archive"], ["first"]):
         sys.exit(__doc__)
-    port, since, opts = "Hormuz", None, argv[1:]
+    port, since, late, opts = "Hormuz", None, False, argv[1:]
     while opts:
         if opts[:1] == ["--port"] and len(opts) > 1:
             port, opts = opts[1], opts[2:]
         elif opts[:1] == ["--since"] and len(opts) > 1:
             since, opts = opts[1], opts[2:]
+        elif opts[:1] == ["--late"] and argv[0] == "archive":
+            late, opts = True, opts[1:]
         else:
             sys.exit(__doc__)
     if argv[0] == "archive":
+        today = _today().isoformat()
+        stamp = _stamp(port)
+        if late and stamp.exists() and stamp.read_text().strip() == today:
+            # the morning archive got its answer; spend no second query
+            print(f"portwatch archive: {port}: late retry not needed "
+                  f"(archived earlier today); {freshness(port)}")
+            return
         # unattended, so it can sleep out the quota minute once; `calls`
         # (the judgment step's) never does
-        retried = ""
+        retried = " (late retry)" if late else ""
         for attempt in range(2):
             try:
                 new, revised = archive(port)
@@ -208,7 +227,9 @@ def main(argv: list[str]):
                           f" {freshness(port)}")
                     return
                 time.sleep(RETRY_WAIT)
-                retried = " (after one retry)"
+                retried += " (after one retry)"
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(today + "\n")
         print(f"portwatch archive: {port}: {new} new days, {revised} revised"
               f"{retried}; {freshness(port)}")
         return

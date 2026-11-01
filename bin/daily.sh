@@ -224,6 +224,9 @@ speak_step() { # speak_step [speak.py args...]
 run_step speak speak_step
 # Wiki pages for listening; only pages whose text changed are re-synthesized.
 run_step speak-wiki speak_step --wiki
+# Second chance for the Hormuz first prints, minutes after the morning
+# archive; it makes no query unless that one skipped on arcgis errors (10/31).
+run_step portwatch-late python3 kalshi/portwatch.py archive --late
 if [ "$DEPLOY" = "compose" ]; then
   run_step deploy docker compose up -d
 fi
