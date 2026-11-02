@@ -111,8 +111,10 @@ approval-blocked (proven live 9/27).
    `# day-ahead` summary): compare your day-before MINE pre-regs to MKT1, not
    to the same-morning MKT, which has usually already seen the rain.
    It freezes the busiest boards outside the family too (SEA/PHIL/DEN, on
-   CLISEA/CLIPHL/CLIDEN). Their rows print with the rest, but their Brier
-   is in separate `# extra` summary lines; the family's own lines stay
+   CLISEA/CLIPHL/CLIDEN), plus the day's 4 busiest other KXRAIN cities by
+   24h volume (BUSY; rows carry the `station` their rules name). Their rows
+   print with the rest, but their Brier is in separate `# extra` summary
+   lines, which name the cities scored; the family's own lines stay
    DC/NYC/OKC only. Calibration only, no MINE owed.
    The `highfreeze` step does the same for KXHIGH (LAX, NY, TDC, TOKC): NWS grid high +
    every bucket's bid/ask into `$DATA/wx/high-freeze.jsonl`;
