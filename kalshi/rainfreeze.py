@@ -22,6 +22,12 @@ seen the rain fall or lock in overnight (MKT Brier 0.0001 over n=12 by
 10/22), while MINE is frozen the day before, so the day-ahead legs RAW1 /
 MKT1 are its fair yardstick. A failed day-ahead board never fails the city.
 
+Beyond the family and the fixed EXTRA cities, each run freezes the BUSY (4)
+busiest other KXRAIN cities by 24h volume, which follows the weather. Each
+row's `station` is the CLI code from the board's rules, and its grid comes
+from NWS /stations then /points. EXTRA and BUSY rows share the `# extra`
+summaries, which name the cities they scored.
+
 `score` reads the FIRST row per city-day (a freeze is binding; re-runs don't
 overwrite it) and prints newest first: result, then each leg's p and Brier,
 same-day RAW / MKT and day-ahead RAW1 / MKT1 (from the day before's row),
@@ -33,6 +39,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import sys
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -51,6 +58,11 @@ CITIES = {"DC": ("LWX", 97, 69), "NYC": ("OKX", 33, 37), "OKC": ("OUN", 94, 90)}
 EXTRA = {"SEA": (47.4447, -122.3136),   # CLISEA, Seattle-Tacoma Intl
          "PHIL": (39.8733, -75.2268),   # CLIPHL, Philadelphia Intl
          "DEN": (39.8466, -104.6562)}   # CLIDEN, Denver Intl
+# Rain volume follows the weather (11/1 scan: LEX/MKE/IND, none frozen), so
+# each run also freezes the BUSY busiest other cities by summed 24h volume,
+# on the CLI station their rules name, located via NWS /stations/K<code>.
+BUSY = 4
+STATION = re.compile(r"\bat CLI([A-Z]{3})\b")
 PERIODS = 2
 Q4 = Decimal("0.0001")
 
@@ -89,11 +101,50 @@ def _next(city: str, day: str, periods: list[dict]) -> dict:
     return rec
 
 
-def _grid(city: str) -> tuple[str, int, int]:
-    """A family city's fixed grid, or an EXTRA city's from NWS /points."""
+def busiest(n: int) -> list[tuple[str, str]]:
+    """[(city, CLI code)] of the n busiest listed KXRAIN cities outside
+    CITIES / EXTRA, by 24h volume summed over their open days. A board
+    whose rules name no CLI station is skipped; a failed listing is []."""
+    if n <= 0:
+        return []
+    try:
+        markets = kalshi.get_markets(series_ticker="KXRAIN", status="open")
+    except Exception as e:
+        print(f"rainfreeze: KXRAIN listing failed: {e}", file=sys.stderr)
+        return []
+    volume, station = {}, {}
+    for m in markets:
+        city = str(m.get("ticker", "")).rsplit("-", 1)[-1]
+        found = STATION.search(m.get("rules_primary") or "")
+        if city in CITIES or city in EXTRA or not found:
+            continue
+        station.setdefault(city, found.group(1))
+        volume[city] = volume.get(city, 0.0) + float(
+            m.get("volume_24h_fp") or 0)
+    top = sorted(volume, key=lambda c: (-volume[c], c))[:n]
+    return [(c, station[c]) for c in top]
+
+
+def _lat_lon(station: dict) -> tuple[float, float]:
+    """A /stations reply's point: GeoJSON coordinates [lon, lat], or the
+    JSON-LD shape's WKT string 'POINT(lon lat)'."""
+    g = station.get("geometry")
+    if isinstance(g, str):
+        lon, lat = re.findall(r"-?\d+(?:\.\d+)?", g)[:2]
+        return float(lat), float(lon)
+    lon, lat = g["coordinates"][:2]
+    return float(lat), float(lon)
+
+
+def _grid(city: str, code: str | None = None) -> tuple[str, int, int]:
+    """A family city's fixed grid, or an EXTRA city's from NWS /points (a
+    BUSY city's coordinates first from NWS /stations/K<code>)."""
     if city in CITIES:
         return CITIES[city]
-    lat, lon = EXTRA[city]
+    if code:
+        lat, lon = _lat_lon(wx._get(f"/stations/K{code}"))
+    else:
+        lat, lon = EXTRA[city]
     p = wx._get(f"/points/{lat:.4f},{lon:.4f}")
     p = p.get("properties") or p
     return p["gridId"], int(p["gridX"]), int(p["gridY"])
@@ -102,15 +153,20 @@ def _grid(city: str) -> tuple[str, int, int]:
 def freeze(today: str | None = None) -> tuple[int, list[str]]:
     """Append today's freeze per city. Returns (cities fully ok, failed)."""
     ok, failed, out = 0, [], []
-    for city in [*CITIES, *EXTRA]:
+    busy = dict(busiest(BUSY))
+    for city in [*CITIES, *EXTRA, *busy]:
         rec = {"city": city, "grid": None,
                "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(
                    timespec="seconds")}
+        if city in busy:
+            rec["station"] = f"CLI{busy[city]}"
         periods = []
         try:
             if city in EXTRA:
                 rec["grid"] = "points {:.4f},{:.4f}".format(*EXTRA[city])
-            office, x, y = _grid(city)
+            elif city in busy:
+                rec["grid"] = f"station K{busy[city]}"
+            office, x, y = _grid(city, busy.get(city))
             rec["grid"] = f"{office} {x},{y}"
             periods = _periods(wx._get(f"/gridpoints/{office}/{x},{y}/forecast"))
         except Exception as e:
@@ -191,6 +247,7 @@ def score(days: int = 14):
     briers1 = {"RAW1": [], "MKT1": []}
     xbriers = {"RAW": [], "MKT": []}
     xbriers1 = {"RAW1": [], "MKT1": []}
+    xcities = set()  # EXTRA and BUSY cities with a scored extra leg
     lines = []
     for key in keys:
         date, city = key
@@ -217,15 +274,17 @@ def score(days: int = 14):
             else:
                 parts.append(f"{leg} {shown}")
         if result in ("yes", "no"):
-            for tally in ((briers, briers1) if city not in EXTRA
+            for tally in ((briers, briers1) if city in CITIES
                           else (xbriers, xbriers1)):
                 if all(leg in legs for leg in tally):
                     for leg in tally:
                         tally[leg].append((legs[leg] - (result == "yes")) ** 2)
+                    if city not in CITIES:
+                        xcities.add(city)
         lines.append("  ".join(parts))
     for line in reversed(lines):
         print(line)
-    extra = "/".join(EXTRA)
+    extra = "/".join(sorted(xcities))
     for label, what, tally in (
             ("", "both legs", briers),
             ("day-ahead ", "both day-ahead legs (frozen the day before)",
@@ -244,7 +303,7 @@ def main(argv: list[str]):
     if argv[:1] == ["freeze"]:
         before = len(frozen_lines())
         ok, failed = freeze()
-        print(f"rainfreeze: {ok}/{len(CITIES) + len(EXTRA)} cities frozen in full"
+        print(f"rainfreeze: {ok}/{ok + len(failed)} cities frozen in full"
               + (f"; failed: {' '.join(failed)}" if failed else ""))
         if len(frozen_lines()) == before:
             sys.exit(1)
