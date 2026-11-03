@@ -44,6 +44,12 @@ EMPD is EMP centred on DRIFT: the same changes less their mean, plus DRIFT's
 k-print move (None without a DRIFT centre). EMP carries the history's own
 drift (September's diesel run-up, in a 9-day gas decline), so a board-EMP
 loss can be the tails or the drift; EMPD keeps the tails and drops the drift.
+
+WKDAY is log-only: on k=1 KXAAAGASD events only, a normal around
+fuelscore.wkday's centre (MOM scaled by the weekday's mean |change|) with the
+legs' sd. It is not in SCORED, so the summary, paired and divergence lines
+never move; `score` grades it on its own line against MOM (same strikes) and
+BOARD (board-priced ones). Brief 11/2: the weekday falsifier went 2-0.
 """
 
 import datetime as dt
@@ -67,6 +73,8 @@ SERIES = {"KXAAAGASD": "regular", "KXAAAGASW": "regular",
 MODELS = fuelscore.MODELS
 SCORED = MODELS + ("EMP", "EMPD")
 LEGS = ("BOARD",) + SCORED
+# log-only (never in SCORED): fuelscore.wkday's centre, next-print gas only
+WKDAY_SERIES = ("KXAAAGASD",)
 EMP_DAYS = 90  # trailing days of k-print changes behind EMP
 EMP_MIN = 10   # fewer changes than this: no EMP odds
 WINDOW = 5
@@ -179,6 +187,11 @@ def freeze() -> tuple[list[str], list[str]]:
             if k <= 0:
                 continue
             fit = model(prices, base_day, k)
+            if series in WKDAY_SERIES and k == 1:
+                # no sd (a window gap) prices no leg, WKDAY included
+                fit["centre"]["WKDAY"] = (None if fit["sd"] is None
+                                          else fuelscore.wkday(prices,
+                                                               base_day))
             changes = empirical(hist[grade], base_day, k)
             strikes = []
             for m in sorted(ms, key=lambda m: m.get("floor_strike") or 0):
@@ -260,6 +273,9 @@ def score(days: int = 14):
     briers = {leg: [] for leg in LEGS}
     tally = {n: [0, 0] for n in SCORED}
     paired = {n: [0.0, 0.0, 0] for n in SCORED}  # model, board, strikes
+    # log-only WKDAY: [WKDAY, MOM, strikes] on its strikes, then
+    # [WKDAY, BOARD, strikes] on the board-priced ones, and its events
+    wk, wk_board, wk_events = [0.0, 0.0, 0], [0.0, 0.0, 0], 0
     settled = 0
     lines, journals = [], {}
     for r in rows:
@@ -289,6 +305,7 @@ def score(days: int = 14):
             values = [actual]
             source = "  (AAA journal, Kalshi unsettled)"
         legs = {leg: [] for leg in LEGS}
+        wkday = []
         for s in r["strikes"]:
             if result.get(s["ticker"]) not in ("yes", "no"):
                 continue
@@ -296,6 +313,16 @@ def score(days: int = 14):
             mid = _mid(s)
             if mid is not None:
                 legs["BOARD"].append((mid - y) ** 2)
+            w, mom = s["p"].get("WKDAY"), s["p"].get("MOM")
+            if w is not None and mom is not None:
+                wkday.append((w - y) ** 2)
+                wk[0] += (w - y) ** 2
+                wk[1] += (mom - y) ** 2
+                wk[2] += 1
+                if mid is not None:
+                    wk_board[0] += (w - y) ** 2
+                    wk_board[1] += (mid - y) ** 2
+                    wk_board[2] += 1
             for n in SCORED:
                 p = s["p"].get(n)
                 if p is None:
@@ -317,6 +344,9 @@ def score(days: int = 14):
             parts.append(f"{leg} {sum(v) / len(v):.4f}" if v else f"{leg} -")
             if v:
                 briers[leg].append(sum(v) / len(v))
+        if wkday:
+            wk_events += 1
+            parts.append(f"WKDAY {sum(wkday) / len(wkday):.4f}")
         lines.append("  ".join(parts) + source)
     for line in reversed(lines):
         print(line)
@@ -334,6 +364,15 @@ def score(days: int = 14):
         print(f"# divergences (|board - model| >= {GAP}, closer to the "
               "outcome wins): " + "  ".join(
                   f"board-{m} {w}-{l}" for m, (w, l) in tally.items()))
+    if wk[2]:
+        text = (f"# log-only WKDAY (k1 gas, not in the lines above): "
+                f"n={wk_events} events (m{wk[2]} strikes) WKDAY "
+                f"{wk[0] / wk[2]:.4f} vs MOM {wk[1] / wk[2]:.4f}")
+        if wk_board[2]:
+            text += (f"; board-priced WKDAY {wk_board[0] / wk_board[2]:.4f}"
+                     f" vs BOARD {wk_board[1] / wk_board[2]:.4f}"
+                     f" (m{wk_board[2]})")
+        print(text)
 
 
 def main(argv: list[str]):
