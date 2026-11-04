@@ -227,6 +227,21 @@ def _main_archive(argv: list[str]):
                 label = f"{month} ({contract(name, *ym)})"
                 try:
                     new, revised = archive(month)
+                except urllib.error.HTTPError as e:
+                    if e.code != 404 or ym >= front:
+                        print(f"futures archive: {label}: failed: {e}")
+                        continue
+                    # Yahoo drops a month days after expiry (X26: 11/2);
+                    # only a missing final settle is lost data
+                    expiry = _expiry(*ym).isoformat()
+                    days = [r["date"] for r in _read(month)]
+                    final = (f"final journaled day {max(days)}" if days
+                             else "no journaled days")
+                    if not days or max(days) < expiry:
+                        final += " (FINAL SETTLE MISSED)"
+                    print(f"futures archive: {label}: expired {expiry}, "
+                          f"no longer served; {final}")
+                    continue
                 except (Exception, SystemExit) as e:
                     print(f"futures archive: {label}: failed: {e}")
                     continue
