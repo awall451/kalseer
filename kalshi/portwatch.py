@@ -31,7 +31,8 @@ quota: first and latest n_total per day, newest first. A successful archive
 stamps today's UTC date in $DATA/portwatch/<port>.archived; `archive --late`
 (daily.sh, after the judgment step) queries only when today has no stamp,
 a second chance minutes after a morning that skipped on arcgis errors
-(10/27, 10/29, 10/31).
+(10/27, 10/29, 10/31), or when the journal's lag says a weekly batch is
+due (DUE_DAYS) and may land after the morning query (Tue 11/3).
 """
 
 import datetime
@@ -51,6 +52,9 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
 # Weekly publication leaves the newest day <= ~10 days old (10/19: 10/11,
 # lag 8d); past this the journal is missing at least one weekly batch.
 STALE_DAYS = 12
+# Batches end on a Sunday and land on Tuesday (lag 2d), so lag 9d means the
+# next one is due today; 11/3 saw none at ~12Z and the late step skipped.
+DUE_DAYS = 9
 # The archive's one retry after an arcgis error waits out the shared quota
 # minute (HAZARD 1b); 10/27 and 10/29 skipped on errors 10/28 didn't repeat.
 RETRY_WAIT = 65
@@ -138,6 +142,15 @@ def freshness(port: str) -> str:
     return text
 
 
+def batch_due(port: str) -> bool:
+    """True when the journal is old enough that a weekly batch is due."""
+    days = [r["date"] for r in _read(port)]
+    if not days:
+        return True
+    lag = (_today() - datetime.date.fromisoformat(max(days))).days
+    return lag >= DUE_DAYS
+
+
 def archive(port: str) -> tuple[int, int]:
     """Journal new days and revisions; returns (new days, revised days)."""
     latest = {}
@@ -206,14 +219,17 @@ def main(argv: list[str]):
     if argv[0] == "archive":
         today = _today().isoformat()
         stamp = _stamp(port)
+        retried = " (late retry)" if late else ""
         if late and stamp.exists() and stamp.read_text().strip() == today:
-            # the morning archive got its answer; spend no second query
-            print(f"portwatch archive: {port}: late retry not needed "
-                  f"(archived earlier today); {freshness(port)}")
-            return
+            if not batch_due(port):
+                # the morning archive got its answer; spend no second query
+                print(f"portwatch archive: {port}: late retry not needed "
+                      f"(archived earlier today); {freshness(port)}")
+                return
+            # answered, but a weekly batch is due and may land after 12Z
+            retried = " (late retry: weekly batch due)"
         # unattended, so it can sleep out the quota minute once; `calls`
         # (the judgment step's) never does
-        retried = " (late retry)" if late else ""
         for attempt in range(2):
             try:
                 new, revised = archive(port)
