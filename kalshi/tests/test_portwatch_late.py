@@ -34,7 +34,11 @@ def test_skipped_archive_leaves_no_stamp(server, tmp_path):
     assert not (tmp_path / "portwatch" / "hormuz.archived").exists()
 
 
-def test_late_makes_no_query_after_a_clean_morning(server, capsys):
+def test_late_makes_no_query_after_a_clean_morning(server, monkeypatch,
+                                                   capsys):
+    # a fresh journal (newest 9/16, lag 1d); a due batch queries again
+    monkeypatch.setattr(portwatch, "_today",
+                        lambda: portwatch.datetime.date(2026, 9, 17))
     server["bodies"] = [ROWS]
     portwatch.main(["archive"])
     capsys.readouterr()
