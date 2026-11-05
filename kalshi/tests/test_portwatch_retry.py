@@ -32,6 +32,9 @@ def server(tmp_path, monkeypatch):
     state = {"bodies": [], "calls": 0, "sleeps": []}
 
     def fake_urlopen(req, timeout=30):
+        if "/query?" not in req.full_url:
+            # layer metadata (test_portwatch_layer): not a query, unscripted
+            raise OSError("layer metadata not scripted")
         state["calls"] += 1
         return FakeResponse(state["bodies"].pop(0))
     monkeypatch.setattr(portwatch.urllib.request, "urlopen", fake_urlopen)

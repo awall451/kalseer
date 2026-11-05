@@ -32,7 +32,11 @@ stamps today's UTC date in $DATA/portwatch/<port>.archived; `archive --late`
 (daily.sh, after the judgment step) queries only when today has no stamp,
 a second chance minutes after a morning that skipped on arcgis errors
 (10/27, 10/29, 10/31), or when the journal's lag says a weekly batch is
-due (DUE_DAYS) and may land after the morning query (Tue 11/3).
+due (DUE_DAYS) and may land after the morning query (Tue 11/3). When an
+archive skips, or answers no new days while a batch is due, it reads the
+layer's metadata once and logs the last data/schema edit against the
+journal: no edit since means unpublished at the source; an edit since
+means our query missed it (week 7 never landed, 10/31-11/4).
 """
 
 import datetime
@@ -44,8 +48,9 @@ import time
 import urllib.parse
 import urllib.request
 
-QUERY_URL = ("https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/"
-             "services/Daily_Chokepoints_Data/FeatureServer/0/query")
+LAYER_URL = ("https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/"
+             "services/Daily_Chokepoints_Data/FeatureServer/0")
+QUERY_URL = LAYER_URL + "/query"
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
@@ -151,6 +156,39 @@ def batch_due(port: str) -> bool:
     return lag >= DUE_DAYS
 
 
+def _utc(ms) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc)
+
+
+def layer_note(port: str) -> str:
+    """The hosted layer's last data/schema edit against the journal's newest
+    seen_at: tells an unpublished batch from a query that no longer sees one
+    (week 7, 10/31-11/4). One request, never fatal."""
+    try:
+        req = urllib.request.Request(
+            LAYER_URL + "?f=json", headers={"User-Agent": "paper-research/0.1"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            info = json.loads(r.read())["editingInfo"]
+        data = _utc(info.get("dataLastEditDate") or info["lastEditDate"])
+        schema = _utc(info["schemaLastEditDate"])
+    except Exception:
+        return "layer metadata unreadable"
+    text = (f"layer data last edited {data:%Y-%m-%d %H:%MZ}, "
+            f"schema {schema:%Y-%m-%d %H:%MZ}")
+    seen = [r["seen_at"] for r in _read(port) if r.get("seen_at")]
+    if not seen:
+        return text
+    last = datetime.datetime.fromisoformat(max(seen))
+    if data <= last:
+        return (text + ": no data edit since the journal last changed, so "
+                "the batch is unpublished at the source, not lost to our query")
+    text += (f": data edited {data:%Y-%m-%d} after the journal last changed, "
+             f"so an empty or failing query is ours to check")
+    if schema > last:
+        text += " (schema too: fields may have moved, cf. item #19)"
+    return text
+
+
 def archive(port: str) -> tuple[int, int]:
     """Journal new days and revisions; returns (new days, revised days)."""
     latest = {}
@@ -240,14 +278,18 @@ def main(argv: list[str]):
                 if attempt:
                     print(f"portwatch archive: {port}: skipped (arcgis error "
                           f"twice, {RETRY_WAIT}s apart; final for this run);"
-                          f" {freshness(port)}")
+                          f" {freshness(port)}; {layer_note(port)}")
                     return
                 time.sleep(RETRY_WAIT)
                 retried += " (after one retry)"
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(today + "\n")
+        note = ""
+        if not new and batch_due(port):
+            # a due batch didn't show: say whether PortWatch edited at all
+            note = f"; {layer_note(port)}"
         print(f"portwatch archive: {port}: {new} new days, {revised} revised"
-              f"{retried}; {freshness(port)}")
+              f"{retried}; {freshness(port)}{note}")
         return
     if argv[0] == "first":
         print_first(port, since)
