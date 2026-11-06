@@ -116,4 +116,4 @@ def test_non_fuel_point_scores_the_plain_error(env, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "= 29000  MINE 100000 err -71000" in out
     assert "->" not in out
-    assert "# MINE point: n=1, MAE 71000.0000" in out
+    assert "# MINE point KXPAYROLLS: n=1, MAE 71000.0000" in out
