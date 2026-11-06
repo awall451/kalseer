@@ -294,8 +294,9 @@ def score(days: int = 30, prefix: str = ""):
     for leg, (n, mine, board, w, l) in sorted(totals.items()):
         print(f"# {leg}: n={n} events, Brier sum {mine:.4f} vs BOARD "
               f"{board:.4f}, wins {w}-{l}")
-    for leg, t in sorted(points.items()):
-        line = f"# {leg} point: n={len(t['err'])}, MAE {_mae(t['err'])}"
+    for (leg, series), t in sorted(points.items()):
+        line = (f"# {leg} point {series}: n={len(t['err'])}, "
+                f"MAE {_mae(t['err'])}")
         if t["race"]:
             n = len(t["race"])
             names = (leg,) + fuelscore.MODELS
@@ -303,7 +304,22 @@ def score(days: int = 30, prefix: str = ""):
                 f"{m} MAE {_mae([e[m] for e in t['race']])} "
                 f"best {sum(min(e.values()) == e[m] for e in t['race'])}"
                 for m in names))
+            line += "; " + _vs_mom(leg, t["race"])
         print(line)
+
+
+def _vs_mom(leg: str, race: list[dict]) -> str:
+    """The leg against MOM alone, oldest-first race in: totals and the last
+    5 newest first (11/5's diesel retirement watch: 'if MOM wins 3 of the
+    next 5'); the '-> best' column can't say it when DRIFT or RW wins."""
+    def who(e):
+        return leg if e[leg] < e["MOM"] else "MOM" if e["MOM"] < e[leg] \
+            else "tie"
+    calls = [who(e) for e in race]
+    last = calls[-5:][::-1]
+    return (f"{leg} vs MOM: {leg} closer {calls.count(leg)}, MOM closer "
+            f"{calls.count('MOM')}, tied {calls.count('tie')}; last "
+            f"{len(last)} newest first: {' '.join(last)}")
 
 
 def _mae(errs: list) -> str:
@@ -331,7 +347,8 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
         actual = actual.quantize(Decimal("0.0001"))
     fc = {r["leg"]: _num(r["point"]), **models}
     err = {m: actual - f for m, f in fc.items()}
-    t = points.setdefault(r["leg"], {"err": [], "race": []})
+    t = points.setdefault((r["leg"], r["event"].split("-")[0]),
+                          {"err": [], "race": []})
     t["err"].append(abs(err[r["leg"]]))
     if models:
         t["race"].append({m: abs(e) for m, e in err.items()})
