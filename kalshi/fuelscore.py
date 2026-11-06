@@ -57,6 +57,7 @@ MODELS = ("RW", "MOM", "DRIFT")
 # WKDAY is log-only (never in MODELS, so the race's wins don't move); each
 # weekday needs this many observed changes before it scales a forecast
 WKDAY_MIN = 3
+DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 CENT = Decimal(100)
 SETTLED = {"regular": "KXAAAGASD", "diesel": "KXDIESELD"}
 
@@ -250,7 +251,8 @@ def main(argv: list[str]):
                      f"WKDAY {w:.4f} {(actual - w) * CENT:+.2f}")
         lines.append("  ".join(parts))
         if w is not None and fc["MOM"] is not None:
-            wk.append((abs(actual - w) * CENT, abs(actual - fc["MOM"]) * CENT))
+            wk.append((abs(actual - w) * CENT, abs(actual - fc["MOM"]) * CENT,
+                       date.fromisoformat(day).weekday()))
         if None not in fc.values():
             e = {m: abs(actual - fc[m]) * CENT for m in MODELS}
             best = min(e.values())
@@ -274,16 +276,35 @@ def main(argv: list[str]):
     w = wkday(prices, last)
     text = f"# log-only WKDAY (not in the race): n={len(wk)}"
     if wk:
-        text += (f" WKDAY MAE {sum(a for a, _ in wk) / len(wk):.3f}c vs MOM "
-                 f"MAE {sum(b for _, b in wk) / len(wk):.3f}c on the same "
-                 f"days; closer than MOM {sum(a < b for a, b in wk)}, MOM "
-                 f"closer {sum(a > b for a, b in wk)}, tied "
-                 f"{sum(a == b for a, b in wk)}")
+        text += (f" WKDAY MAE {sum(a for a, _, _ in wk) / len(wk):.3f}c vs "
+                 f"MOM MAE {sum(b for _, b, _ in wk) / len(wk):.3f}c on the "
+                 f"same days; closer than MOM {sum(a < b for a, b, _ in wk)}, "
+                 f"MOM closer {sum(a > b for a, b, _ in wk)}, tied "
+                 f"{sum(a == b for a, b, _ in wk)}")
     else:
         text += f" (each weekday needs {WKDAY_MIN} observed changes)"
     if w is not None:
         text += f"; next {_back(last, -1)} WKDAY {w:.4f}"
     print(text)
+    if wk:
+        print(wkday_split(wk))
+
+
+def wkday_split(wk: list[tuple[Decimal, Decimal, int]]) -> str:
+    """The log-only race per weekday of the scored print, Monday first:
+    WKDAY closer-MOM closer-tied and both MAEs (11/5: 'its edge looks
+    confined to Sun/Mon/Tue', counted by hand)."""
+    cells = []
+    for wd in range(7):
+        day = [(a, b) for a, b, d in wk if d == wd]
+        if day:
+            cells.append(
+                f"{DAYS[wd]} {sum(a < b for a, b in day)}-"
+                f"{sum(a > b for a, b in day)}-{sum(a == b for a, b in day)} "
+                f"MAE {sum(a for a, _ in day) / len(day):.3f}/"
+                f"{sum(b for _, b in day) / len(day):.3f}c")
+    return ("# WKDAY vs MOM by weekday (WKDAY closer-MOM closer-tied, MAE "
+            "WKDAY/MOM): " + "  ".join(cells))
 
 
 if __name__ == "__main__":
