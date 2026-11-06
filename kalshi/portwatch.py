@@ -36,7 +36,9 @@ due (DUE_DAYS) and may land after the morning query (Tue 11/3). When an
 archive skips, or answers no new days while a batch is due, it reads the
 layer's metadata once and logs the last data/schema edit against the
 journal: no edit since means unpublished at the source; an edit since
-means our query missed it (week 7 never landed, 10/31-11/4).
+means our query missed it (week 7 never landed, 10/31-11/4). If the layer
+can't answer even that (Invalid URL, 11/4-11/5), the org's services
+directory says whether the service was renamed and lists its successors.
 """
 
 import datetime
@@ -48,8 +50,10 @@ import time
 import urllib.parse
 import urllib.request
 
-LAYER_URL = ("https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/"
-             "services/Daily_Chokepoints_Data/FeatureServer/0")
+SERVICES_URL = ("https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/"
+                "services")
+SERVICE = "Daily_Chokepoints_Data"
+LAYER_URL = f"{SERVICES_URL}/{SERVICE}/FeatureServer/0"
 QUERY_URL = LAYER_URL + "/query"
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
@@ -160,19 +164,54 @@ def _utc(ms) -> datetime.datetime:
     return datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc)
 
 
+def _get_json(url: str) -> dict:
+    req = urllib.request.Request(url, headers={"User-Agent": "paper-research/0.1"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
+def _arcgis_error(body) -> str:
+    """' (arcgis error CODE: MESSAGE)' for an error body, else ''."""
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return ""
+    err = body["error"]
+    return f" (arcgis error {err.get('code', '?')}: {err.get('message', '?')})"
+
+
+def service_note() -> str:
+    """Whether SERVICE is still in the org's services directory, and which
+    chokepoint services it lists: a layer answering Invalid URL to its own
+    metadata (11/4-11/5) is gone from that path. One request, never fatal."""
+    try:
+        services = _get_json(SERVICES_URL + "?f=json")["services"]
+        listed = [(s["name"].rsplit("/", 1)[-1], s["type"]) for s in services]
+    except Exception:
+        return "org services directory unreadable too (host or org outage)"
+    if (SERVICE, "FeatureServer") in listed:
+        return (f"{SERVICE} is still listed in the org's services directory, "
+                f"so the layer or its id moved inside it")
+    text = f"{SERVICE} is not in the org's services directory"
+    choke = [f"{n} ({t})" for n, t in listed if "chokepoint" in n.lower()]
+    if not choke:
+        return text + f"; no chokepoint service listed ({len(listed)} services)"
+    return (text + f"; chokepoint services listed: {', '.join(choke)}; "
+            f"point LAYER_URL at the new one")
+
+
 def layer_note(port: str) -> str:
     """The hosted layer's last data/schema edit against the journal's newest
     seen_at: tells an unpublished batch from a query that no longer sees one
-    (week 7, 10/31-11/4). One request, never fatal."""
+    (week 7, 10/31-11/4). One request, never fatal; if the metadata is
+    unreadable, one more asks the org directory whether the service moved."""
+    body = None
     try:
-        req = urllib.request.Request(
-            LAYER_URL + "?f=json", headers={"User-Agent": "paper-research/0.1"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            info = json.loads(r.read())["editingInfo"]
+        body = _get_json(LAYER_URL + "?f=json")
+        info = body["editingInfo"]
         data = _utc(info.get("dataLastEditDate") or info["lastEditDate"])
         schema = _utc(info["schemaLastEditDate"])
     except Exception:
-        return "layer metadata unreadable"
+        return (f"layer metadata unreadable{_arcgis_error(body)}; "
+                f"{service_note()}")
     text = (f"layer data last edited {data:%Y-%m-%d %H:%MZ}, "
             f"schema {schema:%Y-%m-%d %H:%MZ}")
     seen = [r["seen_at"] for r in _read(port) if r.get("seen_at")]
