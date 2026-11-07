@@ -21,6 +21,8 @@ still freeze. Exit 1 only if nothing was journaled.
 `moves` prints, per event, one line per freeze: T-n, the date, and each
 strike's board mid (kalshi.board_mid; '-' for an empty or wide book), then
 the move from the first freeze to the newest on strikes priced at both.
+PREFIX is a series name (KXCPI: that series only, not KXCPICORE/KXCPIYOY)
+or, with a dash, an event-ticker prefix (KXCPI-26OCT).
 
 `score` reads each event's settled results from Kalshi and prints the
 board's mean per-strike Brier for every freeze (priced strikes only), then
@@ -122,19 +124,32 @@ def _mids(row: dict) -> dict[str, float | None]:
             for m in row["markets"]}
 
 
+def _matches(event: str, prefix: str) -> bool:
+    """A bare series name is that series only: KXCPI is a text prefix of
+    KXCPICORE/KXCPIYOY/KXCPICOREYOY (brief 11/6 read the wrong board). With a
+    dash (KXCPI-26OCT, KXCPI-26) it is an event-ticker prefix."""
+    if "-" in prefix:
+        return event.startswith(prefix)
+    return event.split("-", 1)[0] == prefix
+
+
 def _by_event(prefix: str | None) -> dict[str, list[dict]]:
     out = {}
     for r in read():
-        if prefix and not r["event"].startswith(prefix):
+        if prefix and not _matches(r["event"], prefix):
             continue
         out.setdefault(r["event"], []).append(r)
     return out
 
 
+def _none(prefix: str | None) -> str:
+    return f"# no freezes in {JOURNAL}" + (f" for {prefix}" if prefix else "")
+
+
 def moves(prefix: str | None = None):
     events = _by_event(prefix)
     if not events:
-        print(f"# no freezes in {JOURNAL}")
+        print(_none(prefix))
         return
     for event, rs in events.items():
         print(f"# {event} closes {rs[-1]['close_time']}")
@@ -153,7 +168,7 @@ def moves(prefix: str | None = None):
 def score(prefix: str | None = None):
     events = _by_event(prefix)
     if not events:
-        print(f"# no freezes in {JOURNAL}")
+        print(_none(prefix))
         return
     by_out = {}
     for event, rs in events.items():
