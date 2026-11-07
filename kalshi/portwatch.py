@@ -225,7 +225,36 @@ def layer_note(port: str) -> str:
              f"so an empty or failing query is ours to check")
     if schema > last:
         text += " (schema too: fields may have moved, cf. item #19)"
+        text += field_note(body.get("fields"))
     return text
+
+
+# every field fetch_calls names in where/outFields/orderByFields
+QUERIED = ("date", "portname", "n_total")
+
+
+def field_note(fields) -> str:
+    """'; queried fields … present' or the missing ones, from the metadata in
+    hand: the 11/3 republish edited the schema and no query has been answered
+    since (op-11-06 asked a human to check these names by hand)."""
+    if not isinstance(fields, list):
+        return ""
+    types = {f.get("name"): f.get("type") for f in fields}
+    missing = [q for q in QUERIED if q not in types]
+    if not missing:
+        return (f"; queried fields {', '.join(QUERIED)} all present "
+                f"(date is {types['date']})")
+    # attributes come back under the layer's own spelling, so a case-only
+    # rename still breaks attrs["n_total"]
+    names = [str(n) for n in types]
+    out = []
+    for q in missing:
+        near = [n for n in names if n.lower() == q]
+        out.append(f"{q} (layer has {near[0]})" if near else q)
+    text = f"; queried field missing: {', '.join(out)}"
+    if "date" in types:
+        text += f" (date is {types['date']})"
+    return text + f"; layer fields: {', '.join(names)}"
 
 
 def archive(port: str) -> tuple[int, int]:
