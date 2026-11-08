@@ -20,8 +20,9 @@ still freeze. Exit 1 only if nothing was journaled.
 
 `moves` prints, per event, one line per freeze: T-n, the date, and each
 strike's board mid (kalshi.board_mid; '-' for an empty or wide book), then
-the move from the first freeze to the newest on strikes priced at both.
-PREFIX is a series name (KXCPI: that series only, not KXCPICORE/KXCPIYOY)
+the move from the first freeze to the newest on strikes priced at both,
+then `# board median:` with each freeze's implied median (where the mids
+cross 0.5, interpolated; '<'/'>' off the ladder). PREFIX is a series name (KXCPI: that series only, not KXCPICORE/KXCPIYOY)
 or, with a dash, an event-ticker prefix (KXCPI-26OCT).
 
 `score` reads each event's settled results from Kalshi and prints the
@@ -124,6 +125,37 @@ def _mids(row: dict) -> dict[str, float | None]:
             for m in row["markets"]}
 
 
+def median(row: dict) -> tuple[str, float | None]:
+    """The board's implied median: where the 'greater' survival mids cross
+    0.5, linear between the two priced floors that bracket it. ('<', f) or
+    ('>', f) when the crossing is off the ladder; ('-', None) unpriced."""
+    pts = sorted((m["floor"], p) for m, p in
+                 zip(row["markets"], _mids(row).values())
+                 if p is not None and m.get("floor") is not None)
+    if not pts:
+        return "-", None
+    if pts[0][1] < 0.5:
+        return "<", pts[0][0]
+    for (a, pa), (b, pb) in zip(pts, pts[1:]):
+        if pa >= 0.5 > pb:
+            return "", a + (b - a) * (pa - 0.5) / (pa - pb)
+    return ">", pts[-1][0]
+
+
+def median_line(rs: list[dict]) -> str:
+    """'# board median: T-n M  …' for an event's freezes (brief 11/7: the
+    NFP pre-reg is the board's T-1 median from November)."""
+    whole = any(abs(m.get("floor") or 0) >= 100
+                for r in rs for m in r["markets"])
+    cells = []
+    for r in rs:
+        side, value = median(r)
+        text = "-" if value is None else (
+            f"{side}{value:.0f}" if whole else f"{side}{value:.3f}")
+        cells.append(f"T-{r['days_out']} {text}")
+    return "# board median: " + "  ".join(cells)
+
+
 def _matches(event: str, prefix: str) -> bool:
     """A bare series name is that series only: KXCPI is a text prefix of
     KXCPICORE/KXCPIYOY/KXCPICOREYOY (brief 11/6 read the wrong board). With a
@@ -163,6 +195,7 @@ def moves(prefix: str | None = None):
                      if v is not None and last.get(k) is not None]
             print(f"# T-{rs[0]['days_out']} -> T-{rs[-1]['days_out']}: "
                   + "  ".join(delta))
+        print(median_line(rs))
 
 
 def score(prefix: str | None = None):
