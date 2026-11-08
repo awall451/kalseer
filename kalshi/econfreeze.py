@@ -20,8 +20,9 @@ still freeze. Exit 1 only if nothing was journaled.
 
 `moves` prints, per event, one line per freeze: T-n, the date, and each
 strike's board mid (kalshi.board_mid; '-' for an empty or wide book), then
-the move from the first freeze to the newest on strikes priced at both.
-PREFIX is a series name (KXCPI: that series only, not KXCPICORE/KXCPIYOY)
+the move from the first freeze to the newest on strikes priced at both,
+then `# board median:` with each freeze's implied median (where the mids
+cross 0.5, interpolated; '<'/'>' off the ladder). PREFIX is a series name (KXCPI: that series only, not KXCPICORE/KXCPIYOY)
 or, with a dash, an event-ticker prefix (KXCPI-26OCT).
 
 `score` reads each event's settled results from Kalshi and prints the
