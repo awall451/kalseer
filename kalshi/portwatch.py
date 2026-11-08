@@ -39,6 +39,9 @@ journal: no edit since means unpublished at the source; an edit since
 means our query missed it (week 7 never landed, 10/31-11/4). If the layer
 can't answer even that (Invalid URL, 11/4-11/5), the org's services
 directory says whether the service was renamed and lists its successors.
+A query answering zero rows over a window the journal already covers is
+our where clause (11/6: `date` went esriFieldTypeDateOnly), so `archive`
+retries it once with a DATE literal and logs what each query answered.
 """
 
 import datetime
@@ -106,11 +109,12 @@ def _day(value) -> str:
         value / 1000, tz=datetime.timezone.utc).date().isoformat()
 
 
-def fetch_calls(port: str, since: str) -> list[tuple[str, object]]:
+def fetch_calls(port: str, since: str,
+                literal: str = "TIMESTAMP") -> list[tuple[str, object]]:
     """Daily (date, n_total) rows for a chokepoint, newest first."""
     body = _query({
         "where": (f"portname LIKE '%{port}%' AND "
-                  f"date >= TIMESTAMP '{since}'"),
+                  f"date >= {literal} '{since}'"),
         "outFields": "date,n_total",
         "orderByFields": "date DESC",
         "f": "json",
@@ -257,8 +261,14 @@ def field_note(fields) -> str:
     return text + f"; layer fields: {', '.join(names)}"
 
 
-def archive(port: str) -> tuple[int, int]:
-    """Journal new days and revisions; returns (new days, revised days)."""
+def _answered(rows) -> str:
+    newest = f" (newest {rows[0][0]})" if rows else ""
+    return f"{len(rows)} rows{newest}"
+
+
+def archive(port: str, notes: list | None = None) -> tuple[int, int]:
+    """Journal new days and revisions; returns (new days, revised days).
+    `notes` collects what the query answered, for the archive line."""
     latest = {}
     for r in _read(port):
         latest[r["date"]] = r["n_total"]
@@ -266,8 +276,21 @@ def archive(port: str) -> tuple[int, int]:
              - datetime.timedelta(days=45)).isoformat()
     seen_at = datetime.datetime.now(tz=datetime.timezone.utc).isoformat(
         timespec="seconds")
+    rows = fetch_calls(port, since)
+    covered = sum(day >= since for day in latest)
+    note = f"query answered {_answered(rows)}"
+    if not rows and covered:
+        # the window overlaps journaled days, so zero rows is our where
+        # clause, not publication: `date` went esriFieldTypeDateOnly on
+        # 11/6, and ArcGIS spells date-only literals DATE 'YYYY-MM-DD'
+        rows = fetch_calls(port, since, literal="DATE")
+        note = (f"TIMESTAMP query answered 0 rows though the journal holds "
+                f"{covered} days since {since}; DATE retry answered "
+                f"{_answered(rows) if rows else '0 rows too'}")
+    if notes is not None:
+        notes.append(note)
     out, new, revised = [], 0, 0
-    for day, n_total in sorted(fetch_calls(port, since)):
+    for day, n_total in sorted(rows):
         if day not in latest:
             out.append({"date": day, "n_total": n_total, "seen_at": seen_at})
             new += 1
@@ -337,8 +360,9 @@ def main(argv: list[str]):
         # unattended, so it can sleep out the quota minute once; `calls`
         # (the judgment step's) never does
         for attempt in range(2):
+            notes = []
             try:
-                new, revised = archive(port)
+                new, revised = archive(port, notes)
                 break
             except SystemExit as e:
                 if e.code != 2:
@@ -352,12 +376,17 @@ def main(argv: list[str]):
                 retried += " (after one retry)"
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(today + "\n")
-        note = ""
+        note, answered = "", ""
+        if notes and "DATE retry" in notes[0]:
+            answered = f"; {notes[0]}"
         if not new and batch_due(port):
-            # a due batch didn't show: say whether PortWatch edited at all
+            # a due batch didn't show: say whether PortWatch edited at all,
+            # and whether the query came back empty or with nothing new
+            # (11/7 logged `0 new days` and couldn't tell)
+            answered = f"; {notes[0]}" if notes else ""
             note = f"; {layer_note(port)}"
         print(f"portwatch archive: {port}: {new} new days, {revised} revised"
-              f"{retried}; {freshness(port)}{note}")
+              f"{retried}{answered}; {freshness(port)}{note}")
         return
     if argv[0] == "first":
         print_first(port, since)
