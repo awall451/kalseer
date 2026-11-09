@@ -50,6 +50,14 @@ fuelscore.wkday's centre (MOM scaled by the weekday's mean |change|) with the
 legs' sd. It is not in SCORED, so the summary, paired and divergence lines
 never move; `score` grades it on its own line against MOM (same strikes) and
 BOARD (board-priced ones). Brief 11/2: the weekday falsifier went 2-0.
+
+The board's centre is where its mids cross 0.5, linear between the two
+bracketing priced floors (brief 11/8: "the gas board was centred ~4.0195 and
+missed by only +0.08c, the best of every forecaster", read by hand). `freeze`
+prints it per event next to each model's centre; `score` adds each centre's
+miss (print - centre, cents) and the closest to the event's line, and a
+'# centre miss' line pairs each model with BOARD on the events whose board
+crosses 0.5 on the ladder (an off-ladder centre, '<f' or '>f', is not scored).
 """
 
 import datetime as dt
@@ -223,6 +231,58 @@ def freeze() -> tuple[list[str], list[str]]:
     return [r["event"] for r in out], failed
 
 
+def centre(rec: dict) -> tuple[str, float | None]:
+    """The board's implied centre: where the board mids cross 0.5, linear
+    between the two priced floors that bracket it (econfreeze.median's
+    rule). ('<', f) or ('>', f) when the crossing is off the ladder;
+    ('-', None) when no strike has a board mid."""
+    pts = sorted((s["floor"], mid) for s in rec["strikes"]
+                 if s.get("floor") is not None
+                 and (mid := _mid(s)) is not None)
+    if not pts:
+        return "-", None
+    if pts[0][1] < 0.5:
+        return "<", pts[0][0]
+    for (a, pa), (b, pb) in zip(pts, pts[1:]):
+        if pa >= 0.5 > pb:
+            return "", a + (b - a) * (pa - 0.5) / (pa - pb)
+    return ">", pts[-1][0]
+
+
+def centres(rec: dict) -> dict[str, tuple[str, float | None]]:
+    """BOARD's centre, then each model's frozen centre ('', value)."""
+    out = {"BOARD": centre(rec)}
+    for name, c in (rec.get("centre") or {}).items():
+        if c is not None:
+            out[name] = ("", float(c))
+    return out
+
+
+def centre_line(rec: dict) -> str:
+    return (f"  {rec['event']} centre: " + "  ".join(
+        f"{n} -" if v is None else f"{n} {side}{v:.4f}"
+        for n, (side, v) in centres(rec).items()))
+
+
+def centre_misses(rec: dict, actual: Decimal) -> tuple[str, dict]:
+    """'centre miss (c): …' for the event's line, and {leg: |miss| cents}
+    over the legs whose centre is on the ladder."""
+    parts, miss = [], {}
+    for n, (side, v) in centres(rec).items():
+        if v is None or side:
+            parts.append(f"{n} {side}{v:.4f}" if v is not None else f"{n} -")
+            continue
+        err = (float(actual) - v) * 100
+        parts.append(f"{n} {v:.4f} {err:+.2f}")
+        miss[n] = abs(round(err, 6))
+    text = "centre miss (c): " + "  ".join(parts)
+    if len(miss) > 1:
+        best = min(miss.values())
+        text += "  -> closest " + "/".join(n for n, m in miss.items()
+                                          if m == best)
+    return text, miss
+
+
 def divergences(rec: dict) -> list[str]:
     lines = []
     for s in rec["strikes"]:
@@ -276,6 +336,9 @@ def score(days: int = 14):
     # log-only WKDAY: [WKDAY, MOM, strikes] on its strikes, then
     # [WKDAY, BOARD, strikes] on the board-priced ones, and its events
     wk, wk_board, wk_events = [0.0, 0.0, 0], [0.0, 0.0, 0], 0
+    # centre misses in cents on events with an on-ladder board centre:
+    # model, board, model closer, board closer, events
+    cpair = {}
     settled = 0
     lines, journals = [], {}
     for r in rows:
@@ -347,6 +410,17 @@ def score(days: int = 14):
         if wkday:
             wk_events += 1
             parts.append(f"WKDAY {sum(wkday) / len(wkday):.4f}")
+        text, miss = centre_misses(r, actual)
+        parts.append(text)
+        if "BOARD" in miss:
+            for n, m in miss.items():
+                if n != "BOARD":
+                    c = cpair.setdefault(n, [0.0, 0.0, 0, 0, 0])
+                    c[0] += m
+                    c[1] += miss["BOARD"]
+                    c[2] += m < miss["BOARD"]
+                    c[3] += miss["BOARD"] < m
+                    c[4] += 1
         lines.append("  ".join(parts) + source)
     for line in reversed(lines):
         print(line)
@@ -364,6 +438,11 @@ def score(days: int = 14):
         print(f"# divergences (|board - model| >= {GAP}, closer to the "
               "outcome wins): " + "  ".join(
                   f"board-{m} {w}-{l}" for m, (w, l) in tally.items()))
+    if cpair:
+        print("# centre miss, same events (mean |print - centre|, closer "
+              "wins): " + "  ".join(
+                  f"{n} {mm / k:.2f}c vs BOARD {bm / k:.2f}c {w}-{l} (m{k})"
+                  for n, (mm, bm, w, l, k) in cpair.items()))
     if wk[2]:
         text = (f"# log-only WKDAY (k1 gas, not in the lines above): "
                 f"n={wk_events} events (m{wk[2]} strikes) WKDAY "
@@ -384,6 +463,7 @@ def main(argv: list[str]):
               + (f" ({' '.join(events)})" if events else "")
               + (f"; failed: {' '.join(failed)}" if failed else ""))
         for e in events:
+            print(centre_line(rows[e]))
             for line in divergences(rows[e]):
                 print(line)
         if len(failed) == len(SERIES):
