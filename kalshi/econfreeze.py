@@ -27,7 +27,11 @@ or, with a dash, an event-ticker prefix (KXCPI-26OCT).
 
 `score` reads each event's settled results from Kalshi and prints the
 board's mean per-strike Brier for every freeze (priced strikes only), then
-the mean by days out across events. Unsettled events print as pending.
+the mean by days out across events. Unsettled events print as pending. Each
+settled event also gets `# EVENT settled V; board median miss (settled -
+median): T-n M ±miss …` (an off-ladder median is shown, not scored). A label
+expiration_value ('Above 0.2%') places each median below / in / above the
+bracket the results imply instead.
 """
 
 import datetime as dt
@@ -142,18 +146,72 @@ def median(row: dict) -> tuple[str, float | None]:
     return ">", pts[-1][0]
 
 
+def _whole(rs: list[dict]) -> bool:
+    return any(abs(m.get("floor") or 0) >= 100
+               for r in rs for m in r["markets"])
+
+
+def _num(value: float, whole: bool, sign: str = "") -> str:
+    return f"{value:{sign}.0f}" if whole else f"{value:{sign}.3f}"
+
+
 def median_line(rs: list[dict]) -> str:
     """'# board median: T-n M  …' for an event's freezes (brief 11/7: the
     NFP pre-reg is the board's T-1 median from November)."""
-    whole = any(abs(m.get("floor") or 0) >= 100
-                for r in rs for m in r["markets"])
+    whole = _whole(rs)
     cells = []
     for r in rs:
         side, value = median(r)
-        text = "-" if value is None else (
-            f"{side}{value:.0f}" if whole else f"{side}{value:.3f}")
+        text = "-" if value is None else side + _num(value, whole)
         cells.append(f"T-{r['days_out']} {text}")
     return "# board median: " + "  ".join(cells)
+
+
+def miss_line(event: str, rs: list[dict], markets: list[dict]) -> str:
+    """'# EVENT settled V; board median miss …' once Kalshi settles. The
+    expiration_value comes as '165000', '4.1%' or a label ('Above 0.2%',
+    KXCPICORE-26SEP); a label is placed by the bracket the results imply,
+    (highest YES floor, lowest NO floor]."""
+    whole = _whole(rs)
+    raw = next((m.get("expiration_value") for m in markets
+                if m.get("expiration_value") not in (None, "")), None)
+    try:
+        actual = float(str(raw).rstrip("%"))
+    except ValueError:
+        actual = None
+    cells = []
+    if actual is not None:
+        for r in rs:
+            side, value = median(r)
+            text = "-" if value is None else side + _num(value, whole)
+            if value is not None and not side:
+                text += " " + _num(actual - value, whole, "+")
+            cells.append(f"T-{r['days_out']} {text}")
+        return (f"# {event} settled {str(raw).rstrip('%')}; board median "
+                "miss (settled - median): " + "  ".join(cells))
+    yes = [m["floor_strike"] for m in markets if m.get("result") == "yes"
+           and m.get("floor_strike") is not None]
+    no = [m["floor_strike"] for m in markets if m.get("result") == "no"
+          and m.get("floor_strike") is not None]
+    lo, hi = max(yes, default=None), min(no, default=None)
+    for r in rs:
+        side, value = median(r)
+        if value is None:
+            cells.append(f"T-{r['days_out']} -")
+            continue
+        # '<f' means the median is under f, '>f' over it
+        if side in ("", "<") and lo is not None and value <= lo:
+            where = "below"
+        elif side in ("", ">") and hi is not None and value >= hi and (
+                side or value > hi):
+            where = "above"
+        else:
+            where = "in" if not side else "?"
+        cells.append(f"T-{r['days_out']} {side}{_num(value, whole)} {where}")
+    bracket = (f"({'-inf' if lo is None else _num(lo, whole)}, "
+               f"{'inf' if hi is None else _num(hi, whole)}]")
+    return (f"# {event} settled {raw!r} (in {bracket}); board median vs "
+            "that bracket: " + "  ".join(cells))
 
 
 def _matches(event: str, prefix: str) -> bool:
@@ -205,8 +263,9 @@ def score(prefix: str | None = None):
         return
     by_out = {}
     for event, rs in events.items():
+        settled = kalshi.get_event(event).get("markets") or []
         result = {_strike(m.get("ticker") or ""): m.get("result")
-                  for m in kalshi.get_event(event).get("markets") or []}
+                  for m in settled}
         if not any(v in ("yes", "no") for v in result.values()):
             print(f"{event}  pending ({len(rs)} freeze(s), "
                   f"T-{rs[0]['days_out']}..T-{rs[-1]['days_out']})")
@@ -220,6 +279,7 @@ def score(prefix: str | None = None):
             by_out.setdefault(r["days_out"], []).append(brier)
             print(f"{event}  T-{r['days_out']}  BOARD B {brier:.4f} "
                   f"({len(pairs)} strikes)")
+        print(miss_line(event, rs, settled))
     for k in sorted(by_out, key=lambda x: (x is None, -(x or 0))):
         v = by_out[k]
         print(f"# T-{k}: n={len(v)} mean B {sum(v) / len(v):.4f}")
