@@ -87,7 +87,9 @@ approval-blocked (proven live 9/27).
    writing throwaway fetch scripts:
    `python3 kalshi/kalshi.py market TICKER [TICKER ...]` (full detail: exact
    bid/ask strings, rules text, and `expiration_value` once settled),
-   `python3 kalshi/kalshi.py event EVENT_TICKER` (every strike, one line),
+   `python3 kalshi/kalshi.py event EVENT_TICKER` (every strike, one line;
+   a "greater" ladder ends with `# board centre: X`, where the mids cross
+   0.5 — quote that, don't centre a board by eye),
    `python3 kalshi/kalshi.py series SERIES_TICKER [STATUS]` (STATUS defaults
    to `open`; use `settled` to read finals),
    `python3 kalshi/kalshi.py history SERIES_TICKER [N]` (the settlement
