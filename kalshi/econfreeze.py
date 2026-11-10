@@ -115,7 +115,9 @@ def freeze() -> int:
                          "yes_bid": m.get("yes_bid_dollars"),
                          "yes_ask": m.get("yes_ask_dollars")}
                         for m in markets]})
-        print(f"  {event} T-{days_out} ({len(markets)} strikes)")
+        side, value = median(out[-1])
+        text = "-" if value is None else side + _num(value, _whole(out[-1:]))
+        print(f"  {event} T-{days_out} ({len(markets)} strikes)  median {text}")
     if out:
         JOURNAL.parent.mkdir(parents=True, exist_ok=True)
         with JOURNAL.open("a") as f:
