@@ -74,7 +74,12 @@ approval-blocked (proven live 9/27).
      datums, already frozen: `python3 kalshi/fuelfreeze.py score [--days N]`
      prints per-event Brier and the board-vs-model divergence tally
      (an event due today scores off this morning's journal print, before
-     Kalshi settles it)
+     Kalshi settles it). The step's `EVENT centre:` log line is the board's
+     implied centre (mids cross 0.5) next to each model's; score's
+     `centre miss (c):` per event and its `# centre miss` summary grade
+     them. Rule 4 ("defer to a tight board") is judged on those lines:
+     quote them, never a centre read off the strikes by eye (11/9 brief:
+     "~4.012, -0.27c" where the tool said 4.0103 -0.10)
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math
@@ -144,7 +149,10 @@ approval-blocked (proven live 9/27).
    (KXPAYROLLS, KXU3, KXCPI, KXCPICORE, KXCPIYOY, KXCPICOREYOY) every morning.
    `python3 kalshi/econfreeze.py moves [PREFIX]` prints each strike's mid by
    T-n plus the first-to-newest move, so the T-5 -> T-1 board move is already
-   recorded. `score [PREFIX]` gives the board's Brier by days out once settled.
+   recorded. Each freeze also gets a `# board median:` line (the board's
+   implied median by T-n); the NFP MINE is that T-1 median, so copy it.
+   `score [PREFIX]` gives the board's Brier by days out once settled, and a
+   `# EVENT settled V; board median miss` line grading each T-n median.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
