@@ -5,6 +5,7 @@ reads don't need a hand-written fetch script every run:
 
   python3 kalshi/kalshi.py market TICKER [TICKER ...]   # full detail + rules
   python3 kalshi/kalshi.py event EVENT_TICKER           # board of all strikes
+                                                         # + '# board centre:'
   python3 kalshi/kalshi.py series SERIES_TICKER [STATUS] # markets in a series
                                                          # (STATUS default: open)
   python3 kalshi/kalshi.py history SERIES_TICKER [N]    # settled values, newest
@@ -144,6 +145,46 @@ def board_mid(bid, ask, max_spread: Decimal = MAX_SPREAD) -> float | None:
     return float(b + a) / 2
 
 
+def board_centre(markets: list[dict]) -> tuple[str, float | None]:
+    """A 'greater' ladder's implied centre: where the board mids cross 0.5,
+    linear between the two priced floors that bracket it (the rule of
+    econfreeze.median and fuelfreeze.centre). ('<', f) or ('>', f) when the
+    crossing is off the ladder; ('-', None) when no strike has a board mid."""
+    pts = sorted((m["floor_strike"], mid) for m in markets
+                 if m.get("strike_type") == "greater"
+                 and m.get("floor_strike") is not None
+                 and (mid := board_mid(m.get("yes_bid_dollars"),
+                                       m.get("yes_ask_dollars"))) is not None)
+    if not pts:
+        return "-", None
+    if pts[0][1] < 0.5:
+        return "<", pts[0][0]
+    for (a, pa), (b, pb) in zip(pts, pts[1:]):
+        if pa >= 0.5 > pb:
+            return "", a + (b - a) * (pa - 0.5) / (pa - pb)
+    return ">", pts[-1][0]
+
+
+def centre_line(markets: list[dict]) -> str | None:
+    """'# board centre: X' for an event that is a 'greater' ladder, else None
+    (a KXHIGH bucket event's lone 'greater' tail is no ladder). Whole-number floors print .1f (Hormuz 22.8), or .0f from 100 up
+    (payrolls 68333); fractional floors print .4f (gas 3.9789)."""
+    floors = [m["floor_strike"] for m in markets
+              if m.get("strike_type") == "greater"
+              and m.get("floor_strike") is not None]
+    if not floors or any(m.get("strike_type") not in (None, "greater")
+                         for m in markets):
+        return None
+    side, v = board_centre(markets)
+    if v is None:
+        return "# board centre: - (no priced strike)"
+    if all(float(f).is_integer() for f in floors):
+        spec = ".0f" if max(abs(f) for f in floors) >= 100 else ".1f"
+    else:
+        spec = ".4f"
+    return f"# board centre: {side}{v:{spec}}"
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def _s(m, key) -> str:
@@ -241,6 +282,8 @@ def main(argv: list[str]):
               f"  [{ev.get('category', '')}]")
         for m in ev.get("markets", []):
             print(fmt_board_row(m))
+        if line := centre_line(ev.get("markets", [])):
+            print(line)
     elif cmd == "series":
         status = args[1] if len(args) > 1 else "open"
         for m in get_markets(series_ticker=args[0], status=status):
