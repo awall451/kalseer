@@ -323,12 +323,21 @@ def _journal_print(journals: dict, r: dict) -> Decimal | None:
     return journals[r.get("grade")].get(r["date"])
 
 
+def _today() -> dt.date:
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
 def score(days: int = 14):
     rows = frozen()
     if not rows:
         print(f"# no freezes in {JOURNAL}")
         return
-    since = (dt.date.fromisoformat(rows[-1]["date"])
+    # count back from the newest frozen day that isn't in the future: the
+    # month-end event (11/10: 11/30) pushed a 14-day window past every
+    # settled daily, so the bare `score` showed only pending rows
+    today = _today().isoformat()
+    past = [r["date"] for r in rows if r["date"] <= today]
+    since = (dt.date.fromisoformat(past[-1] if past else today)
              - dt.timedelta(days=days)).isoformat()
     briers = {leg: [] for leg in LEGS}
     tally = {n: [0, 0] for n in SCORED}
