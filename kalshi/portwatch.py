@@ -42,6 +42,10 @@ directory says whether the service was renamed and lists its successors.
 A query answering zero rows over a window the journal already covers is
 our where clause (11/6: `date` went esriFieldTypeDateOnly), so `archive`
 retries it once with a DATE literal and logs what each query answered.
+When the directory no longer lists SERVICE (11/10: 499 Token Required,
+successor PortWatch_chokepoints_database), the skip path reads each
+chokepoint successor's layers. If one serves date/portname/n_total, the
+archive runs once against it, and the log says to repoint LAYER_URL.
 """
 
 import datetime
@@ -182,10 +186,12 @@ def _arcgis_error(body) -> str:
     return f" (arcgis error {err.get('code', '?')}: {err.get('message', '?')})"
 
 
-def service_note() -> str:
+def service_note(found: list | None = None) -> str:
     """Whether SERVICE is still in the org's services directory, and which
     chokepoint services it lists: a layer answering Invalid URL to its own
-    metadata (11/4-11/5) is gone from that path. One request, never fatal."""
+    metadata (11/4-11/5) is gone from that path. One request, never fatal.
+    Each chokepoint FeatureServer successor's layers are then read
+    (successor_note); `found` collects the URLs of layers serving QUERIED."""
     try:
         services = _get_json(SERVICES_URL + "?f=json")["services"]
         listed = [(s["name"].rsplit("/", 1)[-1], s["type"]) for s in services]
@@ -198,15 +204,58 @@ def service_note() -> str:
     choke = [f"{n} ({t})" for n, t in listed if "chokepoint" in n.lower()]
     if not choke:
         return text + f"; no chokepoint service listed ({len(listed)} services)"
-    return (text + f"; chokepoint services listed: {', '.join(choke)}; "
-            f"point LAYER_URL at the new one")
+    text += (f"; chokepoint services listed: {', '.join(choke)}; "
+             f"point LAYER_URL at the new one")
+    for n, t in listed:
+        if "chokepoint" in n.lower() and t == "FeatureServer":
+            text += f"; {successor_note(n, found)}"
+    return text
 
 
-def layer_note(port: str) -> str:
+# successor layers read per service: the skip path stays a few requests
+MAX_LAYERS = 3
+
+
+def successor_note(name: str, found: list | None = None) -> str:
+    """'NAME: layer ID TITLE has/lacks …' for a successor FeatureServer's
+    first MAX_LAYERS layers (11/10: Daily_Chokepoints_Data left the
+    directory, PortWatch_chokepoints_database appeared). Layers carrying
+    every QUERIED field go into `found`. Never fatal."""
+    base = f"{SERVICES_URL}/{name}/FeatureServer"
+    body = None
+    try:
+        body = _get_json(base + "?f=json")
+        layers = body["layers"]
+    except Exception:
+        return f"{name} unreadable{_arcgis_error(body)}"
+    parts = []
+    for layer in layers[:MAX_LAYERS]:
+        lid, title = layer.get("id"), layer.get("name", "?")
+        meta = None
+        try:
+            meta = _get_json(f"{base}/{lid}?f=json")
+            names = {f.get("name") for f in meta["fields"]}
+        except Exception:
+            parts.append(f"layer {lid} {title} unreadable{_arcgis_error(meta)}")
+            continue
+        missing = [q for q in QUERIED if q not in names]
+        if missing:
+            parts.append(f"layer {lid} {title} lacks {', '.join(missing)}")
+            continue
+        parts.append(f"layer {lid} {title} has {', '.join(QUERIED)}")
+        if found is not None:
+            found.append((f"{name}/FeatureServer/{lid}", f"{base}/{lid}"))
+    if not parts:
+        return f"{name}: no layers"
+    return f"{name}: " + "; ".join(parts)
+
+
+def layer_note(port: str, found: list | None = None) -> str:
     """The hosted layer's last data/schema edit against the journal's newest
     seen_at: tells an unpublished batch from a query that no longer sees one
     (week 7, 10/31-11/4). One request, never fatal; if the metadata is
-    unreadable, one more asks the org directory whether the service moved."""
+    unreadable, one more asks the org directory whether the service moved
+    (and `found` collects successor layers serving our fields)."""
     body = None
     try:
         body = _get_json(LAYER_URL + "?f=json")
@@ -215,7 +264,7 @@ def layer_note(port: str) -> str:
         schema = _utc(info["schemaLastEditDate"])
     except Exception:
         return (f"layer metadata unreadable{_arcgis_error(body)}; "
-                f"{service_note()}")
+                f"{service_note(found)}")
     text = (f"layer data last edited {data:%Y-%m-%d %H:%MZ}, "
             f"schema {schema:%Y-%m-%d %H:%MZ}")
     seen = [r["seen_at"] for r in _read(port) if r.get("seen_at")]
@@ -306,6 +355,18 @@ def archive(port: str, notes: list | None = None) -> tuple[int, int]:
     return new, revised
 
 
+def archive_from(port: str, url: str,
+                 notes: list | None = None) -> tuple[int, int]:
+    """archive() against another layer's query URL, once; LAYER_URL and
+    QUERY_URL are restored, so tomorrow tries the configured path first."""
+    global QUERY_URL
+    saved, QUERY_URL = QUERY_URL, url + "/query"
+    try:
+        return archive(port, notes)
+    finally:
+        QUERY_URL = saved
+
+
 def print_first(port: str, since: str | None):
     rows = _read(port)
     if not rows:
@@ -368,10 +429,30 @@ def main(argv: list[str]):
                 if e.code != 2:
                     raise
                 if attempt:
-                    print(f"portwatch archive: {port}: skipped (arcgis error "
-                          f"twice, {RETRY_WAIT}s apart; final for this run);"
-                          f" {freshness(port)}; {layer_note(port)}")
-                    return
+                    found = []
+                    note = layer_note(port, found)
+                    if not found:
+                        print(f"portwatch archive: {port}: skipped (arcgis "
+                              f"error twice, {RETRY_WAIT}s apart; final for "
+                              f"this run); {freshness(port)}; {note}")
+                        return
+                    # 11/10: the old service went 499 Token Required and
+                    # left the directory; a successor layer serving our
+                    # fields gets this run's one more query
+                    label, url = found[0]
+                    try:
+                        new, revised = archive_from(port, url, notes)
+                    except SystemExit as e:
+                        if e.code != 2:
+                            raise
+                        print(f"portwatch archive: {port}: skipped (arcgis "
+                              f"error twice, {RETRY_WAIT}s apart; successor "
+                              f"{label} errored too; final for this run); "
+                              f"{freshness(port)}; {note}")
+                        return
+                    retried += (f" (from successor {label}; point LAYER_URL "
+                                f"at it); {note}")
+                    break
                 time.sleep(RETRY_WAIT)
                 retried += " (after one retry)"
         stamp.parent.mkdir(parents=True, exist_ok=True)
