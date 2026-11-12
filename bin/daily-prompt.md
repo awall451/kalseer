@@ -173,7 +173,8 @@ approval-blocked (proven live 9/27).
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw
    Yahoo symbol like `RBX26.NYM` reads one contract month). The newest bar
-   is live until the ~14:30 ET settle; cross-check one day against a quoted
+   is live until the ~14:30 ET settle: a `LIVE` row is an intraday price, not
+   a level to score against; quote the footer's `newest settled` close. Cross-check one day against a quoted
    settle (e.g. FreightWaves) before leaning on the levels. A `# WARNING`
    line means Yahoo's last-trade quote contradicts the bars, or the newest
    bar repeats a recent close digit-for-digit (rows tagged `= <day> close`):

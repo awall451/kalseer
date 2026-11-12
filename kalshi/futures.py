@@ -25,7 +25,9 @@ that day. `first` reads it back: first-seen vs latest close per day, so
 Newest first, one row per trading day with the day-over-day change. Rows are
 dated by the exchange's trading day. 'latest' marks the newest bar, and
 before the ~14:30 ET settle that bar's close is the live price, not a
-settlement; the footer's last-trade time tells which. A '# WARNING' line
+settlement: a bar dated on the exchange's today is tagged 'LIVE' and the
+footer names the newest settled close (11/10's 08:00 ET ULSD read was 8c
+off the settle and taken for one). A '# WARNING' line
 means the last-trade quote contradicts the bars (a different price for the
 same day, a quote older than the newest bar, or a price equal to an older
 day's close, as on 10/17); neither number is verified. A row tagged
@@ -154,11 +156,16 @@ def _read(name: str) -> list[dict]:
     return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
 
 
+def _exchange_today(meta: dict) -> str:
+    """The exchange's own date: a bar dated on or after it hasn't settled."""
+    return datetime.datetime.fromtimestamp(
+        _now() + int(meta.get("gmtoffset", 0)), datetime.UTC).date().isoformat()
+
+
 def archive(name: str) -> tuple[int, int]:
     """Journal new settled days and revisions; returns (new, revised)."""
     meta, bars = _series(_fetch(_symbol(name)))
-    today = datetime.datetime.fromtimestamp(
-        _now() + int(meta.get("gmtoffset", 0)), datetime.UTC).date().isoformat()
+    today = _exchange_today(meta)
     latest = {r["date"]: r["close"] for r in _read(name)}
     seen_at = datetime.datetime.fromtimestamp(_now(), datetime.UTC).isoformat(
         timespec="seconds")
@@ -406,12 +413,15 @@ def main(argv: list[str]):
     shown = bars[:days]
     months = _months(name, shown) if name in ROOTS else None
     tags = {}
+    # 11/10: an 08:00 ET read of the live ULSD bar was taken for a settle
+    live = bars[0][0] >= _exchange_today(meta)
     for i, (day, close) in enumerate(shown):
         parts = [day, f"{close:.4f}"]
         if i + 1 < len(bars):
             parts.append(f"d/d {close - bars[i + 1][1]:+.4f}")
         if i == 0:
-            parts.append("latest")
+            parts.append("latest LIVE (unsettled until ~14:30 ET)" if live
+                         else "latest")
         repeated = _repeats(bars, i)
         if repeated:
             parts.append(f"= {repeated} close")
@@ -425,6 +435,8 @@ def main(argv: list[str]):
     label = f"{name} = {symbol}" if name in ALIASES else symbol
     footer = [f"# {label}: {len(bars)} daily bars, "
               f"latest {bars[0][0]} = {bars[0][1]:.4f}", _last_trade(meta)]
+    if live and len(bars) > 1:
+        footer.append(f"newest settled {bars[1][0]} = {bars[1][1]:.4f}")
     print("; ".join(p for p in footer if p))
     warning = _conflict(meta, bars)
     if warning:
