@@ -136,6 +136,11 @@ claude_step() {
   # warning into the log (hazard 1f).
   local head="Data directory: $DATA_DIR"
   [ -n "$gap" ] && head+=$'\n'"$gap"
+  # A Hormuz week the portwatch step just completed: 11/11's brief still
+  # called week 8 unpublished, off its own stale watchlist note.
+  local week
+  week="$(python3 kalshi/portwatch.py news "$DATA_DIR" 2>/dev/null)"
+  [ -n "$week" ] && head+=$'\n'"$week"
   timeout "${KALSEER_CLAUDE_TIMEOUT:-2400}" claude -p "$head
 $(cat bin/daily-prompt.md)" \
     --permission-mode default \

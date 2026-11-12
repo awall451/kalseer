@@ -13,6 +13,7 @@ verified working 8/9–8/24:
   python3 kalshi/portwatch.py archive [--port NAME]       # pipeline step
   python3 kalshi/portwatch.py archive --late   # again, only if today's skipped
   python3 kalshi/portwatch.py first [--since D] [--port NAME]  # offline
+  python3 kalshi/portwatch.py news [DATA_DIR] [--today D]  # prompt header
 
 Source hazards this tool respects (watchlist, econ-data-source-hazards):
 HAZARD 1b — the endpoint sits behind a SHARED public per-minute quota; an
@@ -388,12 +389,63 @@ def print_first(port: str, since: str | None):
     print(f"# {freshness(port)}")
 
 
+def news(data, today: str, port: str = "Hormuz") -> str:
+    """A notice for the judgment prompt naming each Mon-Sun week whose last
+    first print was journaled today or yesterday, or "" (11/11: week 8
+    landed at 13:00Z and the brief still called it unpublished)."""
+    path = pathlib.Path(data) / "portwatch" / f"{port.lower()}.jsonl"
+    if not path.exists():
+        return ""
+    first, seen = {}, {}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            r = json.loads(line)
+            if r["date"] not in first:  # Kalshi settles on the first print
+                first[r["date"]] = r["n_total"]
+                seen[r["date"]] = r.get("seen_at", "")[:10]
+    since = (datetime.date.fromisoformat(today)
+             - datetime.timedelta(days=1)).isoformat()
+    lines = []
+    for day in sorted(first):
+        end = datetime.date.fromisoformat(day)
+        if end.weekday() != 6:
+            continue
+        week = [(end - datetime.timedelta(days=i)).isoformat()
+                for i in range(6, -1, -1)]
+        if any(d not in first for d in week):
+            continue
+        landed = max(seen[d] for d in week)
+        if not since <= landed <= today:
+            continue
+        event = f"KXHORMUZWEEKLY-{end.strftime('%y%b%d').upper()}"
+        lines.append(
+            f"PORTWATCH: {port} week {week[0]}..{week[-1]} is fully "
+            f"published (last first print journaled {landed}): sum "
+            f"{sum(first[d] for d in week)}, the settlement value of {event}. "
+            f"Score it today (`python3 kalshi/prereg.py score "
+            f"KXHORMUZWEEKLY`, `python3 kalshi/portwatch.py first --since "
+            f"{week[0]}`) and correct any watchlist note that still calls "
+            f"this week unpublished.")
+    return "\n".join(lines)
+
+
 def _stamp(port: str) -> pathlib.Path:
     """Holds the UTC date of the last archive that got an answer."""
     return _journal(port).with_suffix(".archived")
 
 
 def main(argv: list[str]):
+    if argv[:1] == ["news"]:
+        # offline, for bin/daily.sh's prompt header; like gap.py, the data
+        # dir comes as an argument
+        opts, today = argv[1:], _today().isoformat()
+        if "--today" in opts:
+            i = opts.index("--today")
+            today, opts = opts[i + 1], opts[:i] + opts[i + 2:]
+        note = news(opts[0] if opts else DATA, today)
+        if note:
+            print(note)
+        return
     if argv[:1] not in (["calls"], ["archive"], ["first"]):
         sys.exit(__doc__)
     port, since, late, opts = "Hormuz", None, False, argv[1:]
