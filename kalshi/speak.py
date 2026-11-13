@@ -76,11 +76,15 @@ def humanize(text: str) -> str:
     return re.sub(r"[ \t]+", " ", s)
 
 
+def _today() -> str:
+    return dt.date.today().isoformat()
+
+
 def pick_brief(arg_date: str | None):
     if arg_date:
         p = paper.DATA / f"brief-{arg_date}.json"
         return (arg_date, p) if p.exists() else sys.exit(f"no brief for {arg_date}")
-    today = dt.date.today().isoformat()
+    today = _today()
     p = paper.DATA / f"brief-{today}.json"
     if p.exists():
         return today, p
@@ -285,7 +289,15 @@ def main():
     if sys.argv[1:2] == ["--wiki"]:
         speak_wiki()
         return
-    date, path = pick_brief(sys.argv[1] if len(sys.argv) > 1 else None)
+    arg_date = sys.argv[1] if len(sys.argv) > 1 else None
+    date, path = pick_brief(arg_date)
+    out, chars = speak_brief(edge_tts, date, path)
+    print(f"spoke {chars} chars -> {out} ({out.stat().st_size // 1024} KB, {VOICE})")
+    if not arg_date:
+        backfill(edge_tts, skip=date)
+
+
+def speak_brief(edge_tts, date: str, path: pathlib.Path):
     d = json.loads(path.read_text())
     # Prefer the ear-authored narrative; fall back to humanizing the
     # written one (tickers -> series names, symbols -> words).
@@ -293,7 +305,30 @@ def main():
     text = f"Kalseer morning brief, {date}.\n\n" + body
     out = paper.DATA / "public" / f"brief-{date}.mp3"
     synth(edge_tts, text, out)
-    print(f"spoke {len(text)} chars -> {out} ({out.stat().st_size // 1024} KB, {VOICE})")
+    return out, len(text)
+
+
+# A take the service refused for every retry (2026-11-12: NoAudioReceived x8)
+# is never re-attempted by a run for a later date, so the daily run also
+# speaks recent briefs that have no mp3. Today's take decides the step; a
+# failed backfill is only logged and comes up again tomorrow.
+BACKFILL_DAYS = 3
+
+
+def backfill(edge_tts, skip: str):
+    first = (dt.date.fromisoformat(_today())
+             - dt.timedelta(days=BACKFILL_DAYS)).isoformat()
+    for path in sorted(paper.DATA.glob("brief-*.json")):
+        date = path.stem.replace("brief-", "")
+        if (date == skip or not first <= date <= _today()
+                or (paper.DATA / "public" / f"brief-{date}.mp3").exists()):
+            continue
+        try:
+            out, chars = speak_brief(edge_tts, date, path)
+            print(f"backfill {date}: spoke {chars} chars "
+                  f"({out.stat().st_size // 1024} KB)")
+        except Exception as e:  # keep today's ok; retried tomorrow
+            print(f"backfill {date}: FAILED ({e})")
 
 
 if __name__ == "__main__":
