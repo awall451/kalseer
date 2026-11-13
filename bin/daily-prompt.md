@@ -43,6 +43,8 @@ approval-blocked (proven live 9/27).
    `python3 kalshi/watchlist.py`; `show [ID]` reads it). It checks every id
    and date first, backs up the morning file, and writes atomically, so no
    more one-off `*_tmp.py` scripts that `json.dump` straight onto the file.
+   To fix a wrong sentence, use `"replace": [["old text", "new text"]]` on
+   the item instead of appending a correction after it.
 2. Pick the 3–6 most promising candidates. Prioritize markets that settle on
    public primary data you can actually check:
    - AAA gas prices → gasprices.aaa.com (the literal settlement source).

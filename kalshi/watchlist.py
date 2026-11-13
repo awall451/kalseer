@@ -10,13 +10,17 @@ all-or-nothing instead.
 
 PATCH is a JSON object with any of:
   "update": {"<id>": {"title": ..., "append": "text added to thesis",
+                      "replace": [["old text", "new text"], ...],
                       "notes": ..., "market": ..., "check_from": ...,
                       "expires": ..., "thesis": "full replacement"}}
   "add":    [{"id", "title", "check_from", "expires", "thesis", ...}]
   "remove": ["<id>", ...]
 Nothing is written unless every id, field and date checks out. A "thesis"
 replacement shorter than the current one also needs "shrink": true (the
-journal must never lose history by accident). The first apply of the day
+journal must never lose history by accident). "replace" fixes a wrong
+passage where it sits instead of appending a correction: each old text
+must occur exactly once in the thesis (pairs apply in order, before
+"append"), and it can't be combined with "thesis". The first apply of the day
 snapshots the untouched file to watchlist-bak-MMDD.json; the write goes
 through a temp file and os.replace, so the old file survives any failure.
 """
@@ -29,8 +33,8 @@ import sys
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
                                    pathlib.Path(__file__).parents[1] / "data"))
-FIELDS = {"title", "append", "notes", "market", "check_from", "expires",
-          "thesis", "shrink"}
+FIELDS = {"title", "append", "replace", "notes", "market", "check_from",
+          "expires", "thesis", "shrink"}
 REQUIRED = ("id", "title", "check_from", "expires", "thesis")
 
 
@@ -61,6 +65,25 @@ def _date(value, where: str):
         _fail(f"{where}: {value!r} is not YYYY-MM-DD")
 
 
+def _replaced(id_: str, thesis: str, pairs) -> str:
+    """thesis with each [old, new] pair applied in order, or exit if any
+    old text is empty, missing, or ambiguous at its turn."""
+    if not isinstance(pairs, list) or not all(
+            isinstance(p, list) and len(p) == 2
+            and all(isinstance(s, str) for s in p) for p in pairs):
+        _fail(f"{id_}: \"replace\" must be a list of [old, new] string pairs")
+    for old, new in pairs:
+        if not old:
+            _fail(f"{id_}: replace: old text is empty")
+        n = thesis.count(old)
+        if n != 1:
+            _fail(f"{id_}: replace: {old[:60]!r} "
+                  + ("not found in thesis" if n == 0 else f"occurs {n} times")
+                  + "; quote a longer, unique passage")
+        thesis = thesis.replace(old, new)
+    return thesis
+
+
 def apply(patch: dict, wl: dict) -> list[str]:
     """Apply patch to wl in place, or exit before touching anything."""
     if not isinstance(patch, dict) or set(patch) - {"update", "add", "remove"}:
@@ -84,6 +107,10 @@ def apply(patch: dict, wl: dict) -> list[str]:
             _fail(f"{id_}: replacement thesis is shorter "
                   f"({len(changes['thesis'])} < {len(by_id[id_]['thesis'])} "
                   "chars); add \"shrink\": true if that is intended")
+        if "replace" in changes:
+            if "thesis" in changes:
+                _fail(f"{id_}: \"replace\" or a full \"thesis\", not both")
+            _replaced(id_, by_id[id_]["thesis"], changes["replace"])
     new_ids = set()
     for it in add:
         missing = [k for k in REQUIRED if not it.get(k)]
@@ -98,7 +125,11 @@ def apply(patch: dict, wl: dict) -> list[str]:
     done = []
     for id_, changes in update.items():
         it = by_id[id_]
+        if "replace" in changes:
+            it["thesis"] = _replaced(id_, it["thesis"], changes["replace"])
         for key, value in changes.items():
+            if key == "replace":
+                continue
             if key == "append":
                 sep = "" if not it["thesis"] or it["thesis"].endswith(" ") else " "
                 it["thesis"] += sep + value
