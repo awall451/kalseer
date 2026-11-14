@@ -104,6 +104,26 @@ heartbeat() { # ping the dead-man's switch; never fails the pipeline
   return 0
 }
 
+health_check() { # curl the dashboard; on failure say why, never the URL
+  # 2026-11-13: every step through push was ok, then "FAILED: health
+  # (exit 6)". That's a name-resolution blip, which plain --retry treats as
+  # permanent, and -s left the log with only the number.
+  curl -sf -o /dev/null --max-time 30 --retry 5 --retry-delay 10 \
+    --retry-all-errors "$HEALTH_URL" 2>/dev/null
+  local rc=$? why
+  [ $rc -eq 0 ] && return 0
+  case $rc in
+    6) why="could not resolve host" ;;
+    7) why="could not connect" ;;
+    22) why="HTTP error (4xx/5xx)" ;;
+    28) why="timed out" ;;
+    35|60) why="TLS/certificate failure" ;;
+    *) why="see curl man page" ;;
+  esac
+  echo "--- health: curl exit $rc ($why) after 6 tries"
+  return $rc
+}
+
 run_step() { # run_step <name> <cmd...>
   local name="$1"; shift
   echo "--- step: $name"
@@ -287,7 +307,7 @@ else
 fi
 
 # Health last: with a git-synced dashboard the data has to land upstream first.
-run_step health curl -sf -o /dev/null --retry 5 --retry-delay 5 "$HEALTH_URL"
+run_step health health_check
 
 # Alert on any failure (operator item #18); one extra ping on recovery so a
 # fixed pipeline confirms itself. Best-effort — never changes the exit code.
