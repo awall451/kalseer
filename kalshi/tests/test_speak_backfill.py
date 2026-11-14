@@ -76,10 +76,10 @@ def test_today_is_spoken_first(data, monkeypatch):
 
 def test_failed_backfill_is_logged_and_does_not_fail_the_step(
         data, monkeypatch, capsys):
-    # Today's take succeeds; every later call fails (4 tries per backfill).
+    # Today's take succeeds; every later call fails, whole and in parts.
     tts = fake_edge_tts(fail=False)
     calls = {"n": 0}
-    real = speak.synth
+    real = speak.take
 
     def flaky(edge_tts, text, out):
         calls["n"] += 1
@@ -87,12 +87,12 @@ def test_failed_backfill_is_logged_and_does_not_fail_the_step(
             raise RuntimeError("NoAudioReceived")
         return real(edge_tts, text, out)
 
-    monkeypatch.setattr(speak, "synth", flaky)
+    monkeypatch.setattr(speak, "take", flaky)
     monkeypatch.setitem(sys.modules, "edge_tts", tts)
     speak.main()
     assert mp3s(data) == ["brief-2026-11-11.mp3", "brief-2026-11-13.mp3"]
     out = capsys.readouterr().out
-    assert "backfill 2026-11-12: FAILED (NoAudioReceived)" in out
+    assert "backfill 2026-11-12: FAILED (2 of 2 paragraphs refused)" in out
 
 
 def test_todays_failure_still_fails_the_step_without_backfilling(
