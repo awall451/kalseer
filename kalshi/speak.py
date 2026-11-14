@@ -118,6 +118,14 @@ class ShortAudio(Exception):
     pass
 
 
+def take(edge_tts, text: str, path: pathlib.Path):
+    """One attempt at text -> path; a truncated take raises ShortAudio."""
+    asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(path)))
+    size = path.stat().st_size
+    if size < MIN_BYTES_PER_CHAR * len(text):
+        raise ShortAudio(f"take too short: {size} bytes for {len(text)} chars")
+
+
 def synth(edge_tts, text: str, out: pathlib.Path):
     """Render text to out. edge-tts creates its output file before the
     network can fail, and the dashboard shows a player whenever the mp3
@@ -128,11 +136,7 @@ def synth(edge_tts, text: str, out: pathlib.Path):
     try:
         for wait in (*RETRY_WAITS, None):
             try:
-                asyncio.run(edge_tts.Communicate(pronounce(text), VOICE).save(str(tmp)))
-                size = tmp.stat().st_size
-                if size < MIN_BYTES_PER_CHAR * len(text):
-                    raise ShortAudio(f"take too short: {size} bytes for "
-                                     f"{len(text)} chars")
+                take(edge_tts, text, tmp)
                 break
             except Exception as e:
                 if wait is None:
@@ -297,15 +301,65 @@ def main():
         backfill(edge_tts, skip=date)
 
 
-def speak_brief(edge_tts, date: str, path: pathlib.Path):
+def brief_text(date: str, path: pathlib.Path) -> str:
     d = json.loads(path.read_text())
     # Prefer the ear-authored narrative; fall back to humanizing the
     # written one (tickers -> series names, symbols -> words).
     body = d.get("narrative_spoken") or humanize(md_to_text(d.get("narrative", "")))
-    text = f"Kalseer morning brief, {date}.\n\n" + body
+    return f"Kalseer morning brief, {date}.\n\n" + body
+
+
+def speak_brief(edge_tts, date: str, path: pathlib.Path):
+    text = brief_text(date, path)
     out = paper.DATA / "public" / f"brief-{date}.mp3"
     synth(edge_tts, text, out)
     return out, len(text)
+
+
+# The 11/12 brief was refused on all 12 whole-text tries over two days (8 on
+# 11/12, 4 in the 11/13 backfill), while 11/13's brief spoke on the first try
+# minutes earlier. That looks like a refusal tied to the text, not the
+# service. A backfill whose whole take fails is voiced one paragraph at a
+# time: edge-tts takes are bare MPEG frames, so the parts concatenate into
+# one playable mp3. A paragraph still refused is left out, logged by number,
+# and replaced by a spoken pointer to the written brief, so the listener
+# hears that it's missing.
+PART_WAITS = (5,)
+SKIPPED_NOTE = ("One paragraph of this brief couldn't be voiced; "
+                "the written brief has it.")
+
+
+def speak_in_parts(edge_tts, date: str, path: pathlib.Path):
+    paras = [p for p in brief_text(date, path).split("\n\n") if p.strip()]
+    out = paper.DATA / "public" / f"brief-{date}.mp3"
+    tmp = out.with_name(out.name + ".part")
+    audio, skipped = [], []
+    try:
+        for i, para in enumerate(paras, 1):
+            for wait in (*PART_WAITS, None):
+                try:
+                    take(edge_tts, para, tmp)
+                    audio.append(tmp.read_bytes())
+                    break
+                except Exception as e:
+                    if wait is None:
+                        skipped.append(i)
+                        print(f"! tts part {i}/{len(paras)}: "
+                              f"{type(e).__name__}: {e} -> {para[:60]!r}",
+                              file=sys.stderr)
+                    else:
+                        time.sleep(wait)
+        if len(skipped) * 2 > len(paras):
+            raise RuntimeError(f"{len(skipped)} of {len(paras)} paragraphs "
+                               "refused")
+        if skipped:
+            take(edge_tts, SKIPPED_NOTE, tmp)
+            audio.append(tmp.read_bytes())
+        tmp.write_bytes(b"".join(audio))
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return out, skipped
 
 
 # A take the service refused for every retry (2026-11-12: NoAudioReceived x8)
@@ -327,8 +381,17 @@ def backfill(edge_tts, skip: str):
             out, chars = speak_brief(edge_tts, date, path)
             print(f"backfill {date}: spoke {chars} chars "
                   f"({out.stat().st_size // 1024} KB)")
-        except Exception as e:  # keep today's ok; retried tomorrow
-            print(f"backfill {date}: FAILED ({e})")
+        except Exception as e:
+            print(f"backfill {date}: whole take FAILED ({e}); "
+                  "trying paragraph by paragraph")
+            try:
+                out, skipped = speak_in_parts(edge_tts, date, path)
+                print(f"backfill {date}: spoke in parts "
+                      f"({out.stat().st_size // 1024} KB"
+                      + (f", skipped paragraph {skipped}" if skipped else "")
+                      + ")")
+            except Exception as e:  # keep today's ok; retried tomorrow
+                print(f"backfill {date}: FAILED ({e})")
 
 
 if __name__ == "__main__":
