@@ -5,7 +5,10 @@ T-5 -> T-1") was a hand-copied board on two chosen days, lost whenever the
 run was busy elsewhere. Kalshi's macro boards (KXPAYROLLS, KXU3, KXCPI,
 KXCPICORE, KXCPIYOY, KXCPICOREYOY) are 'greater' ladders that settle on the
 first BLS print, so the board alone is the calibration datum: freeze it every
-morning, read the T-n path back, and score it once Kalshi settles.
+morning, read the T-n path back, and score it once Kalshi settles. The Hormuz
+weekly ladder (KXHORMUZWEEKLY-26NOV15, settling on PortWatch first prints) is
+frozen the same way, every open week at once (brief 11/14: its in-week drift,
+23.5 -> 20.8 with no data, was a hand-kept record).
 
   python3 kalshi/econfreeze.py freeze           # pipeline step
   python3 kalshi/econfreeze.py moves [PREFIX]   # offline: board by T-n
@@ -47,7 +50,10 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
 JOURNAL = DATA / "econ" / "econ-freeze.jsonl"
 
 SERIES = ("KXPAYROLLS", "KXU3", "KXCPI", "KXCPICORE", "KXCPIYOY",
-          "KXCPICOREYOY")
+          "KXCPICOREYOY", "KXHORMUZWEEKLY")
+# weekly ladders: next week lists while this one trades, so freeze every
+# open week (brief 11/14: the week-9 board's in-week drift was hand-kept)
+EVERY_OPEN = ("KXHORMUZWEEKLY",)
 
 
 def _today() -> dt.date:
@@ -60,7 +66,27 @@ def open_events(series: str) -> list[str]:
 
 
 def _month(event: str) -> dt.date:
-    return dt.datetime.strptime(event.rsplit("-", 1)[-1], "%y%b").date()
+    """The event's date: 26NOV (a release month) or 26NOV15 (a week end)."""
+    text = event.rsplit("-", 1)[-1]
+    try:
+        return dt.datetime.strptime(text, "%y%b").date()
+    except ValueError:
+        return dt.datetime.strptime(text, "%y%b%d").date()
+
+
+def targets(series: str, events: list[str]) -> list[str]:
+    """The events to freeze: every open week of a weekly ladder, else the
+    nearest month."""
+    if series in EVERY_OPEN:
+        dated = []
+        for e in events:
+            try:
+                dated.append((_month(e), e))
+            except ValueError:
+                continue
+        return [e for _, e in sorted(dated)]
+    event = nearest(events)
+    return [event] if event else []
 
 
 def nearest(events: list[str]) -> str | None:
@@ -86,43 +112,54 @@ def read() -> list[dict]:
 
 
 def freeze() -> int:
-    """Append a row per series' nearest event; returns rows journaled."""
+    """Append a row per series' nearest event (every open week for
+    EVERY_OPEN); returns rows journaled."""
     today = _today()
     seen = {(r["event"], r["date"]) for r in read()}
     out = []
     for series in SERIES:
         try:
-            event = nearest(open_events(series))
-            if event is None or (event, today.isoformat()) in seen:
-                continue
-            markets = kalshi.get_event(event).get("markets") or []
+            events = targets(series, open_events(series))
         except Exception as e:
             print(f"econfreeze: {series}: {e}", file=sys.stderr)
             continue
-        if not markets:
-            continue
-        close = max(m.get("close_time") or "" for m in markets) or None
-        days_out = None
-        if close:
-            days_out = (dt.date.fromisoformat(close[:10]) - today).days
-        out.append({
-            "event": event, "date": today.isoformat(),
-            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(
-                timespec="seconds"),
-            "close_time": close, "days_out": days_out,
-            "markets": [{"ticker": m.get("ticker"),
-                         "floor": m.get("floor_strike"),
-                         "yes_bid": m.get("yes_bid_dollars"),
-                         "yes_ask": m.get("yes_ask_dollars")}
-                        for m in markets]})
-        side, value = median(out[-1])
-        text = "-" if value is None else side + _num(value, _whole(out[-1:]))
-        print(f"  {event} T-{days_out} ({len(markets)} strikes)  median {text}")
+        for event in events:
+            if (event, today.isoformat()) in seen:
+                continue
+            try:
+                markets = kalshi.get_event(event).get("markets") or []
+            except Exception as e:
+                print(f"econfreeze: {event}: {e}", file=sys.stderr)
+                continue
+            if markets:
+                out.append(_row(event, markets, today))
     if out:
         JOURNAL.parent.mkdir(parents=True, exist_ok=True)
         with JOURNAL.open("a") as f:
             f.writelines(json.dumps(r) + "\n" for r in out)
     return len(out)
+
+
+def _row(event: str, markets: list[dict], today: dt.date) -> dict:
+    """One journal row for an event's board; prints its median line."""
+    close = max(m.get("close_time") or "" for m in markets) or None
+    days_out = None
+    if close:
+        days_out = (dt.date.fromisoformat(close[:10]) - today).days
+    row = {
+        "event": event, "date": today.isoformat(),
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(
+            timespec="seconds"),
+        "close_time": close, "days_out": days_out,
+        "markets": [{"ticker": m.get("ticker"),
+                     "floor": m.get("floor_strike"),
+                     "yes_bid": m.get("yes_bid_dollars"),
+                     "yes_ask": m.get("yes_ask_dollars")}
+                    for m in markets]}
+    side, value = median(row)
+    text = "-" if value is None else side + _num(value, _whole([row]))
+    print(f"  {event} T-{days_out} ({len(markets)} strikes)  median {text}")
+    return row
 
 
 def _mids(row: dict) -> dict[str, float | None]:

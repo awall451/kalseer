@@ -157,6 +157,10 @@ approval-blocked (proven live 9/27).
    implied median by T-n); the NFP MINE is that T-1 median, so copy it.
    `score [PREFIX]` gives the board's Brier by days out once settled, and a
    `# EVENT settled V; board median miss` line grading each T-n median.
+   It also freezes every open KXHORMUZWEEKLY week, so
+   `econfreeze.py moves KXHORMUZWEEKLY` is the in-week board drift record
+   (median by T-n) and `score KXHORMUZWEEKLY` grades it once settled; quote
+   those lines instead of a hand-kept drift tally.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its
