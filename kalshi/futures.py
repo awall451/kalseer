@@ -42,7 +42,9 @@ before delivery, holidays not modelled) and tags each bar `month X26` with
 the contract whose close it equals (`month ?` = neither). Brief 10/24: the
 10/23 bar was Nov's and the last trade Dec's. A '# WARNING: the bars switch
 contract month' line means the continuous series hopped months inside the
-window. `archive` also journals both months as <alias>-<code> (ulsd-Z26),
+window. A last trade from another month than the newest bar's, when that bar
+is its own month's close, is a 'rolled ahead of the bars' note, not a
+WARNING (11/13: RB=F quoted F27 2.5891 over the Z26 bar 2.6214). `archive` also journals both months as <alias>-<code> (ulsd-Z26),
 readable with `first ulsd-Z26`; a contract failure never fails the step.
 For EXPIRED_DAYS after an expiry it keeps journaling the expired month too:
 its final settle lands after expiry day's ~12Z run (HOX26, Fri 10/30).
@@ -306,8 +308,11 @@ def _last_trade(meta: dict) -> str | None:
             f"{when:%Y-%m-%d %H:%M} {tz}")
 
 
-def _conflict(meta: dict, bars: list[tuple[str, float]]) -> str | None:
-    """A warning when the last-trade quote contradicts the daily bars."""
+def _conflict(meta: dict, bars: list[tuple[str, float]],
+              rolled: bool = False) -> str | None:
+    """A warning when the last-trade quote contradicts the daily bars
+    (`rolled`: the quote is another contract month's, so a different price
+    is expected; a stale quote still warns)."""
     if "regularMarketTime" not in meta or "regularMarketPrice" not in meta:
         return None
     price = float(meta["regularMarketPrice"])
@@ -320,7 +325,7 @@ def _conflict(meta: dict, bars: list[tuple[str, float]]) -> str | None:
         return (f"# WARNING: last trade {price:.4f} is dated {day}, older "
                 f"than the newest bar {newest} = {close:.4f}; the quote is "
                 "stale, cross-check a quoted settle")
-    if day > newest or abs(price - close) < 0.00005:
+    if rolled or day > newest or abs(price - close) < 0.00005:
         return None
     msg = (f"# WARNING: last trade {price:.4f} disagrees with the {newest} "
            f"bar {close:.4f}")
@@ -363,10 +368,12 @@ def _months(name: str, shown: list[tuple[str, float]]) -> dict | None:
     return months or None
 
 
-def _print_months(name: str, meta: dict, months: dict | None):
+def _print_months(name: str, meta: dict, months: dict | None) -> str | None:
+    """Print each month's latest close; returns the month the last trade
+    belongs to, if exactly one."""
     if not months:
         print(f"# {name}: contract months unavailable; bars untagged")
-        return
+        return None
     for code, (sym, expiry, cmeta, by_day) in months.items():
         if by_day:
             newest = max(by_day)
@@ -380,6 +387,24 @@ def _print_months(name: str, meta: dict, months: dict | None):
         if len(owners) == 1:
             code, sym = owners[0]
             print(f"# last trade {price:.4f} is the {code} contract's ({sym})")
+            return code
+    return None
+
+
+def _rolled(meta: dict, bars: list[tuple[str, float]], months: dict,
+            tags: dict, owner: str | None) -> str | None:
+    """A note when the last trade is another month's than the newest bar's
+    own close (brief 11/14: RB=F quoted F27 2.5891 over Z26 bars, and the
+    Z26 11/13 bar 2.6214 was called unverified)."""
+    newest, close = bars[0]
+    mine = tags.get(newest, [])
+    if not owner or len(mine) != 1 or owner == mine[0]:
+        return None
+    price = float(meta["regularMarketPrice"])
+    sym = months[mine[0]][0]
+    return (f"# last trade {price:.4f} is {owner}'s; the {newest} bar "
+            f"{close:.4f} is {mine[0]}'s own close ({sym}): the continuous "
+            "quote rolled ahead of the bars, a contract gap, not a conflict")
 
 
 def _switch(shown: list[tuple[str, float]], tags: dict) -> str | None:
@@ -430,15 +455,19 @@ def main(argv: list[str]):
                          if abs(by_day.get(day, -1) - close) < 0.00005]
             parts.append(f"month {'/'.join(tags[day]) or '?'}")
         print("  ".join(parts))
+    rolled = None
     if name in ROOTS:
-        _print_months(name, meta, months)
+        owner = _print_months(name, meta, months)
+        rolled = months and _rolled(meta, bars, months, tags, owner)
+        if rolled:
+            print(rolled)
     label = f"{name} = {symbol}" if name in ALIASES else symbol
     footer = [f"# {label}: {len(bars)} daily bars, "
               f"latest {bars[0][0]} = {bars[0][1]:.4f}", _last_trade(meta)]
     if live and len(bars) > 1:
         footer.append(f"newest settled {bars[1][0]} = {bars[1][1]:.4f}")
     print("; ".join(p for p in footer if p))
-    warning = _conflict(meta, bars)
+    warning = _conflict(meta, bars, rolled=bool(rolled))
     if warning:
         print(warning)
     switch = _switch(shown, tags)

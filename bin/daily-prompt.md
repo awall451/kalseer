@@ -189,6 +189,9 @@ approval-blocked (proven live 9/27).
    matches. A "switch contract month" warning or a last trade "is the Z26
    contract's" means a gap is a roll, not a move, so compare like months
    (`first ulsd-Z26` reads the journaled per-month closes).
+   A `rolled ahead of the bars` line means the last trade is the next
+   month's and the newest bar is its own month's close: the bar is not
+   unverified, so quote its change against the same month's prior close.
 3. For each researched market: read the `rules` fine print, estimate fair value
    as a probability, compare to ask price, subtract the taker fee
    (`kalshi.taker_fee`), and only trade a real net edge (rule of thumb: ≥10¢
