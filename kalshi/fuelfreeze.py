@@ -346,8 +346,9 @@ def score(days: int = 14):
     # [WKDAY, BOARD, strikes] on the board-priced ones, and its events
     wk, wk_board, wk_events = [0.0, 0.0, 0], [0.0, 0.0, 0], 0
     # centre misses in cents on events with an on-ladder board centre:
-    # model, board, model closer, board closer, events
-    cpair = {}
+    # model, board, model closer, board closer, events; then the same per
+    # series (11/13: the diesel daily board-vs-MOM split was hand-tallied)
+    cpair, cseries = {}, {}
     settled = 0
     lines, journals = [], {}
     for r in rows:
@@ -423,8 +424,12 @@ def score(days: int = 14):
         parts.append(text)
         if "BOARD" in miss:
             for n, m in miss.items():
-                if n != "BOARD":
-                    c = cpair.setdefault(n, [0.0, 0.0, 0, 0, 0])
+                if n == "BOARD":
+                    continue
+                by = cseries.setdefault(r.get("series")
+                                        or r["event"].split("-")[0], {})
+                for c in (cpair.setdefault(n, [0.0, 0.0, 0, 0, 0]),
+                          by.setdefault(n, [0.0, 0.0, 0, 0, 0])):
                     c[0] += m
                     c[1] += miss["BOARD"]
                     c[2] += m < miss["BOARD"]
@@ -447,11 +452,15 @@ def score(days: int = 14):
         print(f"# divergences (|board - model| >= {GAP}, closer to the "
               "outcome wins): " + "  ".join(
                   f"board-{m} {w}-{l}" for m, (w, l) in tally.items()))
+    def cells(pairs):
+        return "  ".join(f"{n} {mm / k:.2f}c vs BOARD {bm / k:.2f}c "
+                         f"{w}-{l} (m{k})"
+                         for n, (mm, bm, w, l, k) in pairs.items())
     if cpair:
         print("# centre miss, same events (mean |print - centre|, closer "
-              "wins): " + "  ".join(
-                  f"{n} {mm / k:.2f}c vs BOARD {bm / k:.2f}c {w}-{l} (m{k})"
-                  for n, (mm, bm, w, l, k) in cpair.items()))
+              "wins): " + cells(cpair))
+        for series in sorted(cseries):
+            print(f"# centre miss {series}: " + cells(cseries[series]))
     if wk[2]:
         text = (f"# log-only WKDAY (k1 gas, not in the lines above): "
                 f"n={wk_events} events (m{wk[2]} strikes) WKDAY "
