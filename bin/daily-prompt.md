@@ -81,7 +81,10 @@ approval-blocked (proven live 9/27).
      `centre miss (c):` per event and its `# centre miss` summary grade
      them. Rule 4 ("defer to a tight board") is judged on those lines:
      quote them, never a centre read off the strikes by eye (11/9 brief:
-     "~4.012, -0.27c" where the tool said 4.0103 -0.10)
+     "~4.012, -0.27c" where the tool said 4.0103 -0.10). The pooled line
+     mixes fuels and k1/k7 events; a per-fuel or daily-only record (e.g.
+     diesel daily board vs MOM) is its `# centre miss KXDIESELD:` line,
+     never a tally of the per-event lines by hand
    - Weather → api.weather.gov station observations (e.g. KAUS) and forecasts;
      read the contract's exact station in `rules` first
    - Rotten Tomatoes thresholds → current score + review count + threshold math
