@@ -58,6 +58,11 @@ prints it per event next to each model's centre; `score` adds each centre's
 miss (print - centre, cents) and the closest to the event's line, and a
 '# centre miss' line pairs each model with BOARD on the events whose board
 crosses 0.5 on the ladder (an off-ladder centre, '<f' or '>f', is not scored).
+An event whose board centre sits above or below every mover's centre (MOM,
+DRIFT, WKDAY; at least two of them) is tagged 'board above/below models',
+and a '# board outside models <SERIES>' line scores the board against the
+nearest mover on those events, split above/below (brief 11/17: "the first
+logged case of the board sitting above *every* model", kept by hand).
 """
 
 import datetime as dt
@@ -83,6 +88,9 @@ SCORED = MODELS + ("EMP", "EMPD")
 LEGS = ("BOARD",) + SCORED
 # log-only (never in SCORED): fuelscore.wkday's centre, next-print gas only
 WKDAY_SERIES = ("KXAAAGASD",)
+# the centres that forecast a move; RW is today's print, so a falling board
+# always sits below it
+MOVERS = ("MOM", "DRIFT", "WKDAY")
 EMP_DAYS = 90  # trailing days of k-print changes behind EMP
 EMP_MIN = 10   # fewer changes than this: no EMP odds
 WINDOW = 5
@@ -283,6 +291,20 @@ def centre_misses(rec: dict, actual: Decimal) -> tuple[str, dict]:
     return text, miss
 
 
+def outside(rec: dict) -> str | None:
+    """'above' / 'below' when the on-ladder board centre is outside every
+    mover's centre (at least two of them), else None."""
+    side, board = centre(rec)
+    movers = [v for n, (s, v) in centres(rec).items() if n in MOVERS]
+    if side or board is None or len(movers) < 2:
+        return None
+    if board > max(movers):
+        return "above"
+    if board < min(movers):
+        return "below"
+    return None
+
+
 def divergences(rec: dict) -> list[str]:
     lines = []
     for s in rec["strikes"]:
@@ -349,6 +371,9 @@ def score(days: int = 14):
     # model, board, model closer, board closer, events; then the same per
     # series (11/13: the diesel daily board-vs-MOM split was hand-tallied)
     cpair, cseries = {}, {}
+    # the same, board vs the nearest mover, on events whose board centre is
+    # outside every mover (11/17: "first logged case" kept by hand)
+    outs = {}
     settled = 0
     lines, journals = [], {}
     for r in rows:
@@ -422,6 +447,19 @@ def score(days: int = 14):
             parts.append(f"WKDAY {sum(wkday) / len(wkday):.4f}")
         text, miss = centre_misses(r, actual)
         parts.append(text)
+        side = outside(r)
+        if side:
+            parts.append(f"board {side} models")
+            near = min(miss[n] for n in MOVERS if n in miss)
+            by = outs.setdefault(r.get("series")
+                                 or r["event"].split("-")[0], {})
+            for c in (by.setdefault("all", [0.0, 0.0, 0, 0, 0]),
+                      by.setdefault(side, [0.0, 0.0, 0, 0, 0])):
+                c[0] += near
+                c[1] += miss["BOARD"]
+                c[2] += near < miss["BOARD"]
+                c[3] += miss["BOARD"] < near
+                c[4] += 1
         if "BOARD" in miss:
             for n, m in miss.items():
                 if n == "BOARD":
@@ -461,6 +499,12 @@ def score(days: int = 14):
               "wins): " + cells(cpair))
         for series in sorted(cseries):
             print(f"# centre miss {series}: " + cells(cseries[series]))
+    for series in sorted(outs):
+        mm, bm, w, l, k = outs[series]["all"]
+        split = ", ".join(f"{s} {outs[series][s][2]}-{outs[series][s][3]}"
+                          for s in ("above", "below") if s in outs[series])
+        print(f"# board outside models {series}: nearest model {mm / k:.2f}c"
+              f" vs BOARD {bm / k:.2f}c {w}-{l} (m{k}; {split})")
     if wk[2]:
         text = (f"# log-only WKDAY (k1 gas, not in the lines above): "
                 f"n={wk_events} events (m{wk[2]} strikes) WKDAY "
