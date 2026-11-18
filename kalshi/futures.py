@@ -15,12 +15,22 @@ futures path instead of recorded as "driver unverified".
   python3 kalshi/futures.py closes RBX26.NYM --days 20   # one contract month
   python3 kalshi/futures.py archive               # pipeline step: journal
   python3 kalshi/futures.py first ulsd [--since YYYY-MM-DD]   # offline read
+  python3 kalshi/futures.py margin [--days N]     # offline: retail - wholesale
 
 `archive` journals every SETTLED day (dated before the exchange's today) of
 rbob and ulsd to $DATA/futures/<alias>.jsonl the first time it is seen, and
 again with revised_from whenever Yahoo later serves a different close for
 that day. `first` reads it back: first-seen vs latest close per day, so
 "re-read and cross-check" (10/17) is a lookup, not a memory.
+
+`margin` reads the AAA journal (aaa/prints.jsonl) against the journaled
+closes: each of the last N prints (15) minus the newest settled close
+dated before it of the contract month that was front on the print day
+(RB for gas, HO for diesel; the continuous journal if that month has none),
+newest first, with the change since the previous print. A contract change
+is tagged '(roll)' instead of a change. One '# gas margin' / '# diesel
+margin' footer each gives latest, mean, min and max over the window, so
+"wider than 11/14's" (watchlist 11/17, by hand) is a lookup.
 
 Newest first, one row per trading day with the day-over-day change. Rows are
 dated by the exchange's trading day. 'latest' marks the newest bar, and
@@ -211,6 +221,83 @@ def print_first(name: str, since: str | None):
           f"({name} = {_symbol(name)}, settled days only)")
 
 
+MARGIN = (("gas", "regular", "rbob"), ("diesel", "diesel", "ulsd"))
+
+
+def _prints(grade: str) -> dict[str, float]:
+    """{date: AAA print} of a grade; the last row for a date wins."""
+    path = DATA / "aaa" / "prints.jsonl"
+    out = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        cell = ((rec.get("prices") or {}).get("current") or {}).get(grade)
+        if cell:
+            out[rec["date"]] = float(cell.lstrip("$"))
+    return out
+
+
+def _settle_before(name: str, day: str) -> tuple[str, str, float] | None:
+    """(label, settle day, close) of the newest journaled close of the
+    front month on `day` dated before it; the continuous journal if the
+    month's has none."""
+    ym = front_month(datetime.date.fromisoformat(day))
+    for journal, label in ((f"{name}-{_code(*ym)}", ROOTS[name] + _code(*ym)),
+                           (name, ALIASES[name])):
+        closes = {}
+        for r in _read(journal):
+            closes[r["date"]] = r["close"]  # a revision supersedes
+        before = [d for d in closes if d < day]
+        if closes:
+            return (label, max(before), closes[max(before)]) if before \
+                else (label, None, None)
+    return None
+
+
+def print_margin(days: int):
+    """Retail minus wholesale per AAA print, newest first (watchlist 11/17:
+    "diesel 5.9848-4.0818 = 1.90 (wider than 11/14's 1.78)" by hand)."""
+    path = DATA / "aaa" / "prints.jsonl"
+    if not path.exists():
+        print(f"# no AAA prints at {path}")
+        return
+    rows = {}  # fuel -> [(day, label, margin)] oldest first
+    lines = {}
+    for fuel, grade, name in MARGIN:
+        prints = _prints(grade)
+        for day in sorted(prints)[-days:]:
+            got = _settle_before(name, day)
+            label = got[0] if got else ALIASES[name]
+            if not got or got[1] is None:
+                cell = f"{fuel} {prints[day]:.4f} - {label} -"
+            else:
+                _, settled, close = got
+                margin = round(prints[day] - close, 4)
+                cell = (f"{fuel} {prints[day]:.4f} - {label} {close:.4f} "
+                        f"({settled[5:]}) = {margin:.4f}")
+                prev = rows.setdefault(fuel, [])
+                if prev and prev[-1][1] != label:
+                    cell += " (roll)"
+                elif prev:
+                    cell += f" ({margin - prev[-1][2]:+.4f})"
+                prev.append((day, label, margin))
+            lines.setdefault(day, []).append(cell)
+    for day in sorted(lines, reverse=True):
+        print("  ".join([day, *lines[day]]))
+    for fuel, grade, name in MARGIN:
+        got = rows.get(fuel)
+        if not got:
+            continue
+        low = min(got, key=lambda r: r[2])
+        high = max(got, key=lambda r: r[2])
+        mean = sum(r[2] for r in got) / len(got)
+        print(f"# {fuel} margin ({grade} - {ROOTS[name]} front month): "
+              f"latest {got[-1][2]:.4f} on {got[-1][0]}; n={len(got)} "
+              f"mean {mean:.4f} min {low[2]:.4f} ({low[0]}) "
+              f"max {high[2]:.4f} ({high[0]})")
+
+
 def _main_archive(argv: list[str]):
     if argv[:1] == ["archive"] and len(argv) == 1:
         failed = []
@@ -266,6 +353,14 @@ def _main_archive(argv: list[str]):
         elif argv[2:]:
             sys.exit(__doc__)
         print_first(argv[1], since)
+        return
+    if argv[:1] == ["margin"]:
+        days = 15
+        if argv[1:2] == ["--days"] and len(argv) == 3 and argv[2].isdigit():
+            days = int(argv[2])
+        elif argv[1:]:
+            sys.exit(__doc__)
+        print_margin(days)
         return
     sys.exit(__doc__)
 
@@ -420,7 +515,7 @@ def _switch(shown: list[tuple[str, float]], tags: dict) -> str | None:
 
 
 def main(argv: list[str]):
-    if argv[:1] in (["archive"], ["first"]):
+    if argv[:1] in (["archive"], ["first"], ["margin"]):
         return _main_archive(argv)
     if argv[:1] != ["closes"] or len(argv) < 2 or argv[1].startswith("--"):
         sys.exit(__doc__)

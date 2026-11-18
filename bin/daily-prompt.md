@@ -181,6 +181,10 @@ approval-blocked (proven live 9/27).
    The pipeline's `futures` step journals each settled RBOB/ULSD day and any
    later revision; `python3 kalshi/futures.py first rbob|ulsd [--since D]`
    reads first-seen vs latest closes offline (a revised day is unverified).
+   For the retail-wholesale margin, quote `python3 kalshi/futures.py margin
+   [--days N]` (offline: each AAA print minus the prior settled front-month
+   close, with its change; `# gas margin` / `# diesel margin` give latest,
+   mean, min, max) instead of subtracting by hand.
    For the wholesale driver behind a gas/diesel board move:
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw
