@@ -30,7 +30,11 @@ dated before it of the contract month that was front on the print day
 newest first, with the change since the previous print. A contract change
 is tagged '(roll)' instead of a change. One '# gas margin' / '# diesel
 margin' footer each gives latest, mean, min and max over the window, so
-"wider than 11/14's" (watchlist 11/17, by hand) is a lookup.
+"wider than 11/14's" (watchlist 11/17, by hand) is a lookup. A '# gas
+margin reversion' / '# diesel margin reversion' line adds the window's mean
+margin (and its min..max) to the newest settle of the month front after the
+last print: the retail level a margin back at its mean implies (brief 11/18,
+by hand: "RBZ26 2.5349 + mean margin 1.1239 = 3.66"), against the latest print.
 
 Newest first, one row per trading day with the day-over-day change. Rows are
 dated by the exchange's trading day. 'latest' marks the newest bar, and
@@ -296,6 +300,20 @@ def print_margin(days: int):
               f"latest {got[-1][2]:.4f} on {got[-1][0]}; n={len(got)} "
               f"mean {mean:.4f} min {low[2]:.4f} ({low[0]}) "
               f"max {high[2]:.4f} ({high[0]})")
+        # the print the margin reverts to, against the newest settle of the
+        # month that's front after the last print (brief 11/18, by hand:
+        # "RBZ26 2.5349 + mean margin 1.1239 = 3.66")
+        after = datetime.date.fromisoformat(got[-1][0]) + datetime.timedelta(1)
+        settle = _settle_before(name, after.isoformat())
+        if not settle or settle[1] is None:
+            continue
+        label, settled, close = settle
+        implied = round(close + mean, 4)
+        latest = _prints(grade)[got[-1][0]]
+        print(f"# {fuel} margin reversion: {label} {close:.4f} ({settled[5:]}) "
+              f"+ mean {mean:.4f} = {implied:.4f} (min..max "
+              f"{close + low[2]:.4f}..{close + high[2]:.4f}) vs latest print "
+              f"{latest:.4f} ({round(implied - latest, 4) + 0.0:+.4f})")
 
 
 def _main_archive(argv: list[str]):

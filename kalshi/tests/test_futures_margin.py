@@ -79,8 +79,8 @@ def test_rows_carry_the_margin_change(data, capsys):
 
 def test_footer_summarises_each_fuel(data, capsys):
     out = run(capsys)
-    gas = [l for l in out if l.startswith("# gas margin")]
-    diesel = [l for l in out if l.startswith("# diesel margin")]
+    gas = [l for l in out if l.startswith("# gas margin (")]
+    diesel = [l for l in out if l.startswith("# diesel margin (")]
     assert gas == ["# gas margin (regular - RB front month): latest 1.2439 "
                    "on 2026-11-17; n=3 mean 1.2124 min 1.1904 (2026-11-16) "
                    "max 1.2439 (2026-11-17)"]
@@ -141,3 +141,39 @@ def test_prompt_names_the_margin_line():
     prompt = PROMPT.read_text()
     assert "futures.py margin" in prompt
     assert "# gas margin" in prompt
+
+
+# Margin reversion: the monthly-gas pass leans on "front settle + mean margin"
+# (brief 11/18: "RBZ26 2.5349 + mean margin 1.1239 = 3.66"; watchlist 11/9-11/12
+# "RBZ26 2.71 + 1.05 = 3.76", "2.60 + 1.05 = 3.65", "2.61 + 1.05 = 3.66"),
+# added up by hand against a remembered margin on every run.
+
+def test_reversion_adds_the_window_mean_to_the_newest_settle(data, capsys):
+    out = run(capsys)
+    gas = [l for l in out if l.startswith("# gas margin reversion")]
+    assert gas == ["# gas margin reversion: RBZ26 2.5379 (11-16) + mean 1.2124 "
+                   "= 3.7503 (min..max 3.7283..3.7818) vs latest print 3.7818 "
+                   "(-0.0315)"]
+    diesel = [l for l in out if l.startswith("# diesel margin reversion")]
+    assert diesel[0].startswith("# diesel margin reversion: HOZ26 4.0818 "
+                                "(11-16) + mean ")
+
+
+def test_reversion_uses_a_settle_newer_than_the_last_print(data, capsys):
+    # the 11/17 settle is journaled before the 11/18 print lands
+    with (data / "futures" / "rbob-Z26.jsonl").open("a") as f:
+        f.write(json.dumps({"date": "2026-11-17", "close": 2.5349}) + "\n")
+    gas = [l for l in run(capsys) if l.startswith("# gas margin reversion")]
+    assert gas[0].startswith("# gas margin reversion: RBZ26 2.5349 (11-17) "
+                             "+ mean 1.2124 = 3.7473 ")
+
+
+def test_reversion_follows_the_window(data, capsys):
+    out = run(capsys, "--days", "1")
+    gas = [l for l in out if l.startswith("# gas margin reversion")]
+    assert "+ mean 1.2439 = 3.7818 (min..max 3.7818..3.7818)" in gas[0]
+    assert gas[0].endswith("vs latest print 3.7818 (+0.0000)")
+
+
+def test_prompt_names_the_reversion_line():
+    assert "# gas margin reversion" in PROMPT.read_text()
