@@ -184,7 +184,11 @@ approval-blocked (proven live 9/27).
    For the retail-wholesale margin, quote `python3 kalshi/futures.py margin
    [--days N]` (offline: each AAA print minus the prior settled front-month
    close, with its change; `# gas margin` / `# diesel margin` give latest,
-   mean, min, max) instead of subtracting by hand.
+   mean, min, max) instead of subtracting by hand. For a margin-reversion
+   level (monthly gas), quote its `# gas margin reversion` / `# diesel margin
+   reversion` line (newest front-month settle + the window's mean margin, with
+   the min..max band and the gap to the latest print; widen the window with
+   `--days`) instead of adding a remembered margin to a settle.
    For the wholesale driver behind a gas/diesel board move:
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw
