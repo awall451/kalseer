@@ -22,6 +22,7 @@ strike has settled prints the leg's Brier sum and the frozen board's (mids)
 over the same strikes, and the winner. A per-leg summary closes it.
 
   python3 kalshi/prereg.py point EVENT LEG VALUE
+  python3 kalshi/prereg.py test EVENT LEG ABOVE=SIDE BELOW=SIDE
 
 `point` freezes a point forecast of the event's settlement value (the daily
 fuel "MINE 4.2530", until now only in watchlist prose), with the board, under
@@ -30,6 +31,14 @@ all closed. `score` prints its error (actual - forecast). For KXAAAGASD /
 KXDIESELD it adds fuelscore's RW / MOM / DRIFT forecasts of the same print
 (off the journal, window 5) and the closest; the summary gives each one's MAE
 and "best" count over those rows (ties count for each).
+
+`test` freezes a pass's two-sided falsifier, which until now was rewritable
+prose resolved by hand (11/18: "TEST: >= 5.935 -> MINE/MOM right; <= 5.930 ->
+board/WKDAY right"): `test KXDIESELD-26NOV19 TEST 5.935=MINE/MOM
+5.930=BOARD/WKDAY`. The first threshold must sit above the second; each
+counts for its own side. Same binding rules as `point`. `score` prints the
+settled value and the side it landed on, or 'neither (between)', and a
+'# tests:' line tallies resolved/between/pending and wins per side.
 
 Every AAA fuel series (gas/diesel daily, weekly, monthly) settles on the
 exact AAA print of the event's date, so until Kalshi settles one, `score`
@@ -110,6 +119,44 @@ def point(event: str, leg: str, value: str, now: datetime | None = None):
     rec = {"event": event, "leg": leg,
            "at": now.isoformat(timespec="seconds"), "point": value,
            "board": board}
+    JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+    with JOURNAL.open("a") as f:
+        f.write(json.dumps(rec) + "\n")
+    return rec
+
+
+def test(event: str, leg: str, above: str, below: str,
+         now: datetime | None = None):
+    """Freeze a two-sided test of the event's settlement value: SIDE=VALUE
+    pairs, a value at or above `above`'s threshold for its side, at or
+    below `below`'s for the other."""
+    now = now or _now()
+    leg = leg.upper()
+    sides = []
+    for arg in (above, below):
+        value, eq, side = arg.partition("=")
+        if not eq or not side:
+            sys.exit(__doc__)
+        if _num(value) is None:
+            sys.exit(f"prereg: {value} is not a number")
+        sides.append([value, side])
+    if _num(sides[0][0]) <= _num(sides[1][0]):
+        sys.exit(f"prereg: the above threshold {sides[0][0]} must sit above "
+                 f"the below one {sides[1][0]}")
+    if any(r["event"] == event and r["leg"] == leg for r in rows()):
+        sys.exit(f"prereg: {event} {leg} already frozen and binding; "
+                 f"use a new leg name (e.g. {leg}2)")
+    markets = {m.get("ticker"): m
+               for m in kalshi.get_event(event).get("markets") or []}
+    if not markets:
+        sys.exit(f"prereg: no markets for {event}")
+    if all(_closed(m, now) for m in markets.values()):
+        sys.exit(f"prereg: {event} has closed; a test now is not binding")
+    board = {t: [m.get("yes_bid_dollars"), m.get("yes_ask_dollars")]
+             for t, m in sorted(markets.items())}
+    rec = {"event": event, "leg": leg,
+           "at": now.isoformat(timespec="seconds"),
+           "test": {"above": sides[0], "below": sides[1]}, "board": board}
     JOURNAL.parent.mkdir(parents=True, exist_ok=True)
     with JOURNAL.open("a") as f:
         f.write(json.dumps(rec) + "\n")
@@ -245,7 +292,7 @@ def score(days: int = 30, prefix: str = ""):
         print(f"# no pre-regs in {JOURNAL}"
               + (f" for {prefix}" if prefix else ""))
         return
-    boards, lines, totals, points = {}, [], {}, {}
+    boards, lines, totals, points, tests = {}, [], {}, {}, []
     for r in todo:
         if r["event"] not in boards:
             try:
@@ -257,6 +304,9 @@ def score(days: int = 30, prefix: str = ""):
         head = f"{r['at'][:10]}  {r['event']}  {r['leg']}"
         if "point" in r:
             lines.append(_score_point(r, result, head, points))
+            continue
+        if "test" in r:
+            lines.append(_score_test(r, result, head, tests))
             continue
         settled = [result.get(t, {}).get("result") in ("yes", "no")
                    for t in r["probs"]]
@@ -306,6 +356,14 @@ def score(days: int = 30, prefix: str = ""):
                 for m in names))
             line += "; " + _vs_mom(leg, t["race"])
         print(line)
+    if tests:
+        won = [w for w in tests if w not in (None, "")]
+        line = (f"# tests: n={len(tests)}, resolved {len(won)}, between "
+                f"{tests.count('')}, pending {tests.count(None)}")
+        if won:
+            line += "; " + "  ".join(f"{side} {won.count(side)}"
+                                     for side in sorted(set(won)))
+        print(line)
 
 
 def _vs_mom(leg: str, race: list[dict]) -> str:
@@ -329,19 +387,12 @@ def _mae(errs: list) -> str:
 def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
     """One point row: the settled value, each forecast's error (actual -
     forecast) and, for the daily fuel series, fuelscore's models beside it."""
-    values = [m.get("expiration_value") for m in result.values()
-              if m.get("result") in ("yes", "no")
-              and m.get("expiration_value") not in (None, "")]
-    actual = _num(values[0]) if values else None
-    source = ""
-    if actual is None:
-        # the run journals the print minutes before judgment; Kalshi
-        # settles hours later on that exact print
-        found = _journal_value(r["event"])
-        if found is None:
-            return f"{head}  pending"
-        actual, source = found
-        source = f"  ({source}, Kalshi unsettled)"
+    # the run journals the print minutes before judgment; Kalshi settles
+    # hours later on that exact print
+    found = _settled_value(r, result)
+    if found is None:
+        return f"{head}  pending"
+    actual, source = found
     models = _fuel_models(r["event"])
     if models:
         actual = actual.quantize(Decimal("0.0001"))
@@ -358,6 +409,36 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
     return (f"{head}  = {actual}  " + "  ".join(
         f"{m} {fc[m]:{fmt}} err {e:+{fmt}}" for m, e in err.items())
         + (f"  -> {win}" if models else "") + source)
+
+
+def _settled_value(r: dict, result: dict):
+    """(value, source note) the event settled on, or the journal value it
+    will settle on (noted), or None while neither is known."""
+    values = [m.get("expiration_value") for m in result.values()
+              if m.get("result") in ("yes", "no")
+              and m.get("expiration_value") not in (None, "")]
+    actual = _num(values[0]) if values else None
+    if actual is not None:
+        return actual, ""
+    found = _journal_value(r["event"])
+    if found is None:
+        return None
+    return found[0], f"  ({found[1]}, Kalshi unsettled)"
+
+
+def _score_test(r: dict, result: dict, head: str, tests: list) -> str:
+    """One test row: which side the settled value landed on. `tests` gets
+    the winning side, '' between the thresholds, None pending."""
+    (hi, up), (lo, down) = r["test"]["above"], r["test"]["below"]
+    found = _settled_value(r, result)
+    if found is None:
+        tests.append(None)
+        return f"{head}  pending"
+    actual, source = found
+    win = up if actual >= _num(hi) else down if actual <= _num(lo) else ""
+    tests.append(win)
+    return (f"{head}  = {actual}  >= {hi} {up} | <= {lo} {down}  -> "
+            + (win or "neither (between)") + source)
 
 
 def main(argv: list[str]):
@@ -379,6 +460,12 @@ def main(argv: list[str]):
         rec = point(argv[1], argv[2], argv[3], now=_now())
         print(f"prereg: {rec['event']} {rec['leg']}: point {rec['point']} "
               f"frozen at {rec['at']}")
+        return
+    if argv[:1] == ["test"] and len(argv) == 5:
+        rec = test(argv[1], argv[2], argv[3], argv[4], now=_now())
+        (hi, up), (lo, down) = rec["test"]["above"], rec["test"]["below"]
+        print(f"prereg: {rec['event']} {rec['leg']}: >= {hi} {up}, <= {lo} "
+              f"{down} frozen at {rec['at']}")
         return
     if argv[:1] == ["score"]:
         days, rest = 30, argv[1:]
