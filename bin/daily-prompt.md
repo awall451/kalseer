@@ -298,6 +298,11 @@ Carry all of this in the relevant watchlist item:
   `python3 kalshi/prereg.py test EVENT TEST 5.935=MINE/MOM 5.930=BOARD/WKDAY`
   (at or above the first value for its side, at or below the second); `score` then resolves it,
   'neither (between)' included, so quote that line instead of judging it by hand.
+  Before you price a daily gas/diesel strike off a point ("MINE puts P(>5.900)
+  ~0.73 vs ask 0.06"), run `python3 kalshi/prereg.py odds EVENT [MINE=5.9036]`.
+  It prints every forecaster's P(print > strike) on the live board, using sd =
+  1.25 x that forecaster's own scored MAE, with the YES/NO edge per strike, so
+  quote it rather than picking an sd by hand.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.

@@ -40,6 +40,17 @@ counts for its own side. Same binding rules as `point`. `score` prints the
 settled value and the side it landed on, or 'neither (between)', and a
 '# tests:' line tallies resolved/between/pending and wins per side.
 
+  python3 kalshi/prereg.py odds EVENT [LEG=VALUE ...]
+
+`odds` (read-only, KXAAAGASD / KXDIESELD) prices the event's live board off
+each forecast of its print: the event's frozen points, LEG=VALUE extras not
+yet frozen (starred), and fuelscore's RW / MOM / DRIFT / WKDAY. Each is a
+normal with sd = sqrt(pi/2) x that forecaster's MAE over the series' pre-regs
+printed in the 30 days before (no odds under 5), and every strike shows
+P(print > strike) and the edge, P - ask for YES or bid - P for NO. Until now
+the passes did it by hand with whatever sd came to mind (11/18 "sd ~0.64c from
+MAE 0.51", 11/19 "On MOM (sd ~0.75c)", i.e. MAE itself).
+
 Every AAA fuel series (gas/diesel daily, weekly, monthly) settles on the
 exact AAA print of the event's date, so until Kalshi settles one, `score`
 uses the journal's print for that day, marked "(AAA journal, Kalshi
@@ -55,6 +66,7 @@ journaled week, 9/20..10/25).
 """
 
 import json
+import math
 import os
 import pathlib
 import sys
@@ -71,6 +83,9 @@ DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
 JOURNAL = DATA / "preregs.jsonl"
 FUEL_WINDOW = 5  # fuelscore's default DRIFT window
 HORMUZ = "KXHORMUZWEEKLY"  # weekly sum of PortWatch daily transit calls
+ODDS_DAYS = 30  # trailing days of scored pre-regs behind each odds sd
+ODDS_MIN = 5    # fewer scored errors than this: no odds
+SD_PER_MAE = math.sqrt(math.pi / 2)  # a normal's sd over its mean |error|
 
 
 def _now() -> datetime:
@@ -441,6 +456,85 @@ def _score_test(r: dict, result: dict, head: str, tests: list) -> str:
             + (win or "neither (between)") + source)
 
 
+def _fuel_centres(event: str, prices: dict) -> dict:
+    """fuelscore's RW / MOM / DRIFT / WKDAY for a daily fuel event's print
+    off `prices`, the ones it can make."""
+    day = datetime.strptime(event.split("-")[1], "%y%b%d").date()
+    base = (day - timedelta(days=1)).isoformat()
+    fc = {**fuelscore.forecasts(prices, base, FUEL_WINDOW),
+          "WKDAY": fuelscore.wkday(prices, base)}
+    return {m: v for m, v in fc.items() if v is not None}
+
+
+def odds(event: str, extra: dict[str, str]) -> list[str]:
+    """Each forecast's P(print > strike) on a daily fuel event's live board:
+    a normal with sd = SD_PER_MAE x the forecaster's MAE over the series'
+    pre-regs whose print is journaled in the ODDS_DAYS before this one."""
+    series = event.split("-")[0]
+    found = (_fuel_prints(event)
+             if series in fuelscore.SETTLED.values() else None)
+    if not found:
+        sys.exit(f"prereg: odds covers the daily fuel prints only "
+                 f"({' / '.join(fuelscore.SETTLED.values())}), not {event}")
+    day, prices = found
+    frozen = {r["leg"]: _num(r["point"]) for r in rows()
+              if r["event"] == event and "point" in r}
+    centres = {**{leg.upper(): _num(v) for leg, v in extra.items()},
+               **frozen, **_fuel_centres(event, prices)}
+    since = day - timedelta(days=ODDS_DAYS)
+    errs, seen = {}, set()
+    for r in rows():
+        if "point" not in r or r["event"].split("-")[0] != series:
+            continue
+        d = (_fuel_prints(r["event"]) or [None])[0]
+        actual = prices.get(d.isoformat()) if d else None
+        if actual is None or not since <= d < day:
+            continue
+        errs.setdefault(r["leg"], []).append(abs(actual - _num(r["point"])))
+        if r["event"] not in seen:
+            seen.add(r["event"])
+            for m, v in _fuel_centres(r["event"], prices).items():
+                errs.setdefault(m, []).append(abs(actual - v))
+    sds, cells = {}, []
+    for name, centre in centres.items():
+        tag = name + ("" if name in frozen or name in fuelscore.MODELS
+                      or name == "WKDAY" else "*")
+        e = errs.get(name, [])
+        if len(e) < ODDS_MIN:
+            cells.append(f"{tag} {centre:.4f} (n{len(e)}: no odds)")
+            continue
+        mae = float(sum(e)) / len(e)
+        sds[tag] = (float(centre), max(mae * SD_PER_MAE,
+                                       fuelfreeze.SD_FLOOR))
+        cells.append(f"{tag} {centre:.4f} sd {sds[tag][1] * 100:.2f}c "
+                     f"(MAE {mae * 100:.2f}c n{len(e)})")
+    if any(c.split()[0].endswith("*") for c in cells):
+        cells.append("(* not frozen)")
+    out = [f"# odds {event}: P(print > strike), a normal around each "
+           f"forecast with sd = {SD_PER_MAE:.4f} x its MAE over {series} "
+           f"pre-regs in the {ODDS_DAYS} days before {day}; edge = P - ask "
+           "(YES) or bid - P (NO), before fees",
+           "# " + "  ".join(cells)]
+    ladder = [m for m in kalshi.get_event(event).get("markets") or []
+              if m.get("strike_type") == "greater"
+              and m.get("floor_strike") is not None]
+    for m in sorted(ladder, key=lambda m: float(m["floor_strike"])):
+        bid, ask = m.get("yes_bid_dollars"), m.get("yes_ask_dollars")
+        priced = kalshi.board_mid(bid, ask) is not None
+        row = [m["ticker"][len(event) + 1:],
+               f"{bid}/{ask}" if priced else "unpriced"]
+        for tag, (centre, sd) in sds.items():
+            p = fuelfreeze._p_above(float(m["floor_strike"]), centre, sd)
+            edge = ""
+            if priced and p > float(ask):
+                edge = f" YES+{p - float(ask):.2f}"
+            elif priced and p < float(bid):
+                edge = f" NO+{float(bid) - p:.2f}"
+            row.append(f"{tag} {p:.2f}{edge}")
+        out.append("  ".join(row))
+    return out
+
+
 def main(argv: list[str]):
     if argv[:1] == ["add"] and len(argv) >= 4:
         probs = {}
@@ -466,6 +560,15 @@ def main(argv: list[str]):
         (hi, up), (lo, down) = rec["test"]["above"], rec["test"]["below"]
         print(f"prereg: {rec['event']} {rec['leg']}: >= {hi} {up}, <= {lo} "
               f"{down} frozen at {rec['at']}")
+        return
+    if argv[:1] == ["odds"] and len(argv) >= 2:
+        extra = {}
+        for arg in argv[2:]:
+            leg, eq, value = arg.partition("=")
+            if not eq or _num(value) is None:
+                sys.exit(__doc__)
+            extra[leg] = value
+        print("\n".join(odds(argv[1], extra)))
         return
     if argv[:1] == ["score"]:
         days, rest = 30, argv[1:]
