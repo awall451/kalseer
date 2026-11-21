@@ -298,6 +298,11 @@ Carry all of this in the relevant watchlist item:
   `python3 kalshi/prereg.py test EVENT TEST 5.935=MINE/MOM 5.930=BOARD/WKDAY`
   (at or above the first value for its side, at or below the second); `score` then resolves it,
   'neither (between)' included, so quote that line instead of judging it by hand.
+  The same goes for the weekly and monthly boards (KXDIESELW, KXAAAGASW, KXAAAGASM)
+  and for log-only ones: they settle on their date's print and resolve the same way.
+  A test still carried in prose from an earlier day ("11/30 test unchanged (<3.50
+  DRIFT / >3.60 margin reversion)") freezes the same way on the next run, with
+  its original thresholds and a leg name for each side (`3.60=MARGIN 3.50=DRIFT`).
   Before you price a daily gas/diesel strike off a point ("MINE puts P(>5.900)
   ~0.73 vs ask 0.06"), run `python3 kalshi/prereg.py odds EVENT [MINE=5.9036]`.
   It prints every forecaster's P(print > strike) on the live board, using sd =
