@@ -303,6 +303,11 @@ Carry all of this in the relevant watchlist item:
   It prints every forecaster's P(print > strike) on the live board, using sd =
   1.25 x that forecaster's own scored MAE, with the YES/NO edge per strike, so
   quote it rather than picking an sd by hand.
+  Whether those edges are real is `python3 kalshi/prereg.py edges [--days N] [PREFIX]`:
+  it replays `odds` on each day's frozen board and takes every edge >= 0.10.
+  A `# edges KXDIESELD MINE:` line per forecaster shows the trades it took and
+  won, the edge it claimed against the P&L it got, and its Brier against the
+  board's. Quote it when you pass a big `odds` edge, or when you take one.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.

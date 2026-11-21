@@ -51,6 +51,18 @@ P(print > strike) and the edge, P - ask for YES or bid - P for NO. Until now
 the passes did it by hand with whatever sd came to mind (11/18 "sd ~0.64c from
 MAE 0.51", 11/19 "On MOM (sd ~0.75c)", i.e. MAE itself).
 
+  python3 kalshi/prereg.py edges [--days N] [PREFIX]
+
+`edges` (offline) replays `odds` on the board frozen with each daily fuel
+event's first point row, with the sds it would have had that morning. Every
+edge >= 0.10 counts as one contract at the frozen ask (YES) or bid (NO), and
+each is scored on the journal print. A '# edges SERIES LEG:' line per
+forecaster gives the trades taken and won, the summed edges claimed against
+the P&L they got (before fees), and its Brier over the priced strikes
+against the board's mids. The dailies pass large edges every day because the
+board has the better centre record (11/20 "MINE P(>5.860) 0.92 vs ask
+0.74"); this line says whether passing them was right.
+
 Every AAA fuel series (gas/diesel daily, weekly, monthly) settles on the
 exact AAA print of the event's date, so until Kalshi settles one, `score`
 uses the journal's print for that day, marked "(AAA journal, Kalshi
@@ -86,6 +98,7 @@ HORMUZ = "KXHORMUZWEEKLY"  # weekly sum of PortWatch daily transit calls
 ODDS_DAYS = 30  # trailing days of scored pre-regs behind each odds sd
 ODDS_MIN = 5    # fewer scored errors than this: no odds
 SD_PER_MAE = math.sqrt(math.pi / 2)  # a normal's sd over its mean |error|
+EDGE_MIN = 0.10  # an `edges` trade: the prompt's ~10c mid-range rule of thumb
 
 
 def _now() -> datetime:
@@ -477,6 +490,37 @@ def odds(event: str, extra: dict[str, str]) -> list[str]:
         sys.exit(f"prereg: odds covers the daily fuel prints only "
                  f"({' / '.join(fuelscore.SETTLED.values())}), not {event}")
     day, prices = found
+    cells, sds = _forecasters(event, day, prices, extra)
+    out = [f"# odds {event}: P(print > strike), a normal around each "
+           f"forecast with sd = {SD_PER_MAE:.4f} x its MAE over {series} "
+           f"pre-regs in the {ODDS_DAYS} days before {day}; edge = P - ask "
+           "(YES) or bid - P (NO), before fees",
+           "# " + "  ".join(cells)]
+    ladder = [m for m in kalshi.get_event(event).get("markets") or []
+              if m.get("strike_type") == "greater"
+              and m.get("floor_strike") is not None]
+    for m in sorted(ladder, key=lambda m: float(m["floor_strike"])):
+        bid, ask = m.get("yes_bid_dollars"), m.get("yes_ask_dollars")
+        priced = kalshi.board_mid(bid, ask) is not None
+        row = [m["ticker"][len(event) + 1:],
+               f"{bid}/{ask}" if priced else "unpriced"]
+        for tag, (centre, sd) in sds.items():
+            p = fuelfreeze._p_above(float(m["floor_strike"]), centre, sd)
+            edge = ""
+            if priced and p > float(ask):
+                edge = f" YES+{p - float(ask):.2f}"
+            elif priced and p < float(bid):
+                edge = f" NO+{float(bid) - p:.2f}"
+            row.append(f"{tag} {p:.2f}{edge}")
+        out.append("  ".join(row))
+    return out
+
+
+def _forecasters(event: str, day, prices: dict, extra: dict):
+    """(header cells, {tag: (centre, sd)}) for `odds`: each forecast of a
+    daily fuel event's print and its sd off the series' scored pre-regs in
+    the ODDS_DAYS before `day` (none under ODDS_MIN of them)."""
+    series = event.split("-")[0]
     frozen = {r["leg"]: _num(r["point"]) for r in rows()
               if r["event"] == event and "point" in r}
     centres = {**{leg.upper(): _num(v) for leg, v in extra.items()},
@@ -510,29 +554,83 @@ def odds(event: str, extra: dict[str, str]) -> list[str]:
                      f"(MAE {mae * 100:.2f}c n{len(e)})")
     if any(c.split()[0].endswith("*") for c in cells):
         cells.append("(* not frozen)")
-    out = [f"# odds {event}: P(print > strike), a normal around each "
-           f"forecast with sd = {SD_PER_MAE:.4f} x its MAE over {series} "
-           f"pre-regs in the {ODDS_DAYS} days before {day}; edge = P - ask "
-           "(YES) or bid - P (NO), before fees",
-           "# " + "  ".join(cells)]
-    ladder = [m for m in kalshi.get_event(event).get("markets") or []
-              if m.get("strike_type") == "greater"
-              and m.get("floor_strike") is not None]
-    for m in sorted(ladder, key=lambda m: float(m["floor_strike"])):
-        bid, ask = m.get("yes_bid_dollars"), m.get("yes_ask_dollars")
-        priced = kalshi.board_mid(bid, ask) is not None
-        row = [m["ticker"][len(event) + 1:],
-               f"{bid}/{ask}" if priced else "unpriced"]
+    return cells, sds
+
+
+def edges(days: int = 30, prefix: str = ""):
+    """Replay `odds` on the board each daily fuel event's first point row
+    froze: every edge >= EDGE_MIN is one contract at the frozen ask (YES)
+    or bid (NO), scored on the journal print; per forecaster, what the edges
+    claimed vs what they paid, and its Brier against the board's mids."""
+    firsts = {}
+    for r in rows():
+        series = r["event"].split("-")[0]
+        if ("point" in r and series in fuelscore.SETTLED.values()
+                and r["event"].startswith(prefix)):
+            firsts.setdefault(r["event"], r)
+    found = {e: _fuel_prints(e) for e in firsts}
+    found = {e: f for e, f in found.items() if f}
+    printed = [d for e, (d, p) in found.items() if d.isoformat() in p]
+    if not printed:
+        print("# edges: no daily fuel point rows with a journaled print"
+              + (f" for {prefix}" if prefix else ""))
+        return
+    since = max(printed) - timedelta(days=days)
+    print(f"# edges: odds replayed on the board frozen with each daily fuel "
+          f"event's first point row; every edge >= {EDGE_MIN:.2f} is one "
+          "contract at the frozen ask (YES) or bid (NO), before fees, "
+          "scored on the print (claimed = summed edges, got = P&L)")
+    totals = {}
+    for event, (day, prices) in sorted(found.items(),
+                                       key=lambda kv: kv[1][0]):
+        r = firsts[event]
+        head = f"{r['at'][:10]}  {event}"
+        if day < since:
+            continue
+        actual = prices.get(day.isoformat())
+        if actual is None:
+            print(f"{head}  pending")
+            continue
+        quotes = []
+        for t, (bid, ask) in sorted(r["board"].items()):
+            strike = _num(t.split("-", 2)[-1].lstrip("T"))
+            mid = kalshi.board_mid(bid, ask)
+            if strike is None or mid is None or strike == actual:
+                continue  # unpriced, or a print on the strike: Kalshi's call
+            quotes.append((float(strike), float(bid), float(ask), mid,
+                           actual > strike))
+        if not quotes:
+            continue
+        cells, sds = _forecasters(event, day, prices, {})
+        parts = [c for c in cells if c.endswith("no odds)")]
         for tag, (centre, sd) in sds.items():
-            p = fuelfreeze._p_above(float(m["floor_strike"]), centre, sd)
-            edge = ""
-            if priced and p > float(ask):
-                edge = f" YES+{p - float(ask):.2f}"
-            elif priced and p < float(bid):
-                edge = f" NO+{float(bid) - p:.2f}"
-            row.append(f"{tag} {p:.2f}{edge}")
-        out.append("  ".join(row))
-    return out
+            t = totals.setdefault((event.split("-")[0], tag),
+                                  [set(), 0, 0, 0.0, 0.0, 0.0, 0.0, 0])
+            n = claimed = got = 0.0
+            for strike, bid, ask, mid, yes in quotes:
+                p = fuelfreeze._p_above(strike, centre, sd)
+                t[5] += (p - yes) ** 2
+                t[6] += (mid - yes) ** 2
+                t[7] += 1
+                if p - ask >= EDGE_MIN:
+                    n, claimed, got = n + 1, claimed + p - ask, got + yes - ask
+                    t[2] += yes
+                elif bid - p >= EDGE_MIN:
+                    n, claimed, got = n + 1, claimed + bid - p, got + bid - yes
+                    t[2] += not yes
+            t[0].add(event)
+            t[1] += int(n)
+            t[3] += claimed
+            t[4] += got
+            parts.append(f"{tag} {centre:.4f} taken {int(n)} claimed "
+                         f"{claimed:+.2f} got {got:+.2f}")
+        print(f"{head}  = {actual:.4f}  n{len(quotes)}  " + "  ".join(parts))
+    for (series, tag), (evs, n, won, claimed, got, mine, board, m) in sorted(
+            totals.items()):
+        print(f"# edges {series} {tag}: n={len(evs)} events, taken {n} (edge "
+              f">= {EDGE_MIN:.2f}), won {won}, claimed {claimed:+.2f} got "
+              f"{got:+.2f} per contract; Brier {mine:.4f} vs BOARD "
+              f"{board:.4f} over {m} strikes")
 
 
 def main(argv: list[str]):
@@ -569,6 +667,14 @@ def main(argv: list[str]):
                 sys.exit(__doc__)
             extra[leg] = value
         print("\n".join(odds(argv[1], extra)))
+        return
+    if argv[:1] == ["edges"]:
+        days, rest = 30, argv[1:]
+        if rest[:1] == ["--days"] and len(rest) > 1:
+            days, rest = int(rest[1]), rest[2:]
+        if len(rest) > 1:
+            sys.exit(__doc__)
+        edges(days, rest[0] if rest else "")
         return
     if argv[:1] == ["score"]:
         days, rest = 30, argv[1:]
