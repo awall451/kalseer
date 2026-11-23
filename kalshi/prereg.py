@@ -99,6 +99,8 @@ ODDS_DAYS = 30  # trailing days of scored pre-regs behind each odds sd
 ODDS_MIN = 5    # fewer scored errors than this: no odds
 SD_PER_MAE = math.sqrt(math.pi / 2)  # a normal's sd over its mean |error|
 EDGE_MIN = 0.10  # an `edges` trade: the prompt's ~10c mid-range rule of thumb
+# `edges ... by cost:` splits trades at these prices of the side taken
+COST_BANDS = (0.25, 0.75)
 
 
 def _now() -> datetime:
@@ -605,7 +607,8 @@ def edges(days: int = 30, prefix: str = ""):
         parts = [c for c in cells if c.endswith("no odds)")]
         for tag, (centre, sd) in sds.items():
             t = totals.setdefault((event.split("-")[0], tag),
-                                  [set(), 0, 0, 0.0, 0.0, 0.0, 0.0, 0])
+                                  [set(), 0, 0, 0.0, 0.0, 0.0, 0.0, 0,
+                                   [[0, 0, 0.0, 0.0] for _ in range(3)]])
             n = claimed = got = 0.0
             for strike, bid, ask, mid, yes in quotes:
                 p = fuelfreeze._p_above(strike, centre, sd)
@@ -615,9 +618,18 @@ def edges(days: int = 30, prefix: str = ""):
                 if p - ask >= EDGE_MIN:
                     n, claimed, got = n + 1, claimed + p - ask, got + yes - ask
                     t[2] += yes
+                    side = (ask, p, yes)
                 elif bid - p >= EDGE_MIN:
                     n, claimed, got = n + 1, claimed + bid - p, got + bid - yes
                     t[2] += not yes
+                    side = (1 - bid, 1 - p, not yes)
+                else:
+                    continue
+                cost, said, won = side
+                lo, hi = COST_BANDS
+                b = t[8][0 if cost < lo else 1 if cost <= hi else 2]
+                b[0], b[1] = b[0] + 1, b[1] + won
+                b[2], b[3] = b[2] + said, b[3] + won - cost
             t[0].add(event)
             t[1] += int(n)
             t[3] += claimed
@@ -625,12 +637,18 @@ def edges(days: int = 30, prefix: str = ""):
             parts.append(f"{tag} {centre:.4f} taken {int(n)} claimed "
                          f"{claimed:+.2f} got {got:+.2f}")
         print(f"{head}  = {actual:.4f}  n{len(quotes)}  " + "  ".join(parts))
-    for (series, tag), (evs, n, won, claimed, got, mine, board, m) in sorted(
-            totals.items()):
+    lo, hi = COST_BANDS
+    names = (f"<{lo:.2f}", f"{lo:.2f}-{hi:.2f}", f">{hi:.2f}")
+    for (series, tag), (evs, n, won, claimed, got, mine, board, m,
+                        bands) in sorted(totals.items()):
         print(f"# edges {series} {tag}: n={len(evs)} events, taken {n} (edge "
               f">= {EDGE_MIN:.2f}), won {won}, claimed {claimed:+.2f} got "
               f"{got:+.2f} per contract; Brier {mine:.4f} vs BOARD "
               f"{board:.4f} over {m} strikes")
+        cells = [f"{name} taken {k} won {w} (said {said / k:.2f}) got "
+                 f"{pnl:+.2f}" if k else f"{name} taken 0"
+                 for name, (k, w, said, pnl) in zip(names, bands)]
+        print(f"# edges {series} {tag} by cost: " + " | ".join(cells))
 
 
 def main(argv: list[str]):
