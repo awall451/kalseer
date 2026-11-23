@@ -313,6 +313,10 @@ Carry all of this in the relevant watchlist item:
   A `# edges KXDIESELD MINE:` line per forecaster shows the trades it took and
   won, the edge it claimed against the P&L it got, and its Brier against the
   board's. Quote it when you pass a big `odds` edge, or when you take one.
+  The `# edges KXDIESELD MINE by cost:` line under it splits those trades by
+  the price of the side taken (<0.25 / 0.25-0.75 / >0.75), with the
+  forecaster's own mean P of winning ("said") beside how many won, so say
+  which band a live edge sits in and quote that band, not just the pool.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.
