@@ -51,7 +51,7 @@ P(print > strike) and the edge, P - ask for YES or bid - P for NO. Until now
 the passes did it by hand with whatever sd came to mind (11/18 "sd ~0.64c from
 MAE 0.51", 11/19 "On MOM (sd ~0.75c)", i.e. MAE itself).
 
-  python3 kalshi/prereg.py edges [--days N] [PREFIX]
+  python3 kalshi/prereg.py edges [--days N] [--sd-mult K] [PREFIX]
 
 `edges` (offline) replays `odds` on the board frozen with each daily fuel
 event's first point row, with the sds it would have had that morning. Every
@@ -61,7 +61,10 @@ forecaster gives the trades taken and won, the summed edges claimed against
 the P&L they got (before fees), and its Brier over the priced strikes
 against the board's mids. The dailies pass large edges every day because the
 board has the better centre record (11/20 "MINE P(>5.860) 0.92 vs ask
-0.74"); this line says whether passing them was right.
+0.74"); this line says whether passing them was right. `--sd-mult K`
+replays with every sd x K (summary lines tagged '(sd xK)'), so whether a
+tighter or wider normal fixes the cheap-ticket band is a sweep, not a
+change to `odds`.
 
 Every AAA fuel series (gas/diesel daily, weekly, monthly) settles on the
 exact AAA print of the event's date, so until Kalshi settles one, `score`
@@ -559,11 +562,12 @@ def _forecasters(event: str, day, prices: dict, extra: dict):
     return cells, sds
 
 
-def edges(days: int = 30, prefix: str = ""):
+def edges(days: int = 30, prefix: str = "", sd_mult: float = 1.0):
     """Replay `odds` on the board each daily fuel event's first point row
     froze: every edge >= EDGE_MIN is one contract at the frozen ask (YES)
     or bid (NO), scored on the journal print; per forecaster, what the edges
-    claimed vs what they paid, and its Brier against the board's mids."""
+    claimed vs what they paid, and its Brier against the board's mids.
+    `sd_mult` scales every sd (floored at SD_FLOOR) and tags the summary."""
     firsts = {}
     for r in rows():
         series = r["event"].split("-")[0]
@@ -582,6 +586,10 @@ def edges(days: int = 30, prefix: str = ""):
           f"event's first point row; every edge >= {EDGE_MIN:.2f} is one "
           "contract at the frozen ask (YES) or bid (NO), before fees, "
           "scored on the print (claimed = summed edges, got = P&L)")
+    mult = "" if sd_mult == 1 else f" (sd x{sd_mult:.2f})"
+    if mult:
+        print(f"# edges: sd x{sd_mult:.2f} (--sd-mult): every odds sd scaled, "
+              f"sd = {SD_PER_MAE * sd_mult:.4f} x MAE")
     totals = {}
     for event, (day, prices) in sorted(found.items(),
                                        key=lambda kv: kv[1][0]):
@@ -606,6 +614,8 @@ def edges(days: int = 30, prefix: str = ""):
         cells, sds = _forecasters(event, day, prices, {})
         parts = [c for c in cells if c.endswith("no odds)")]
         for tag, (centre, sd) in sds.items():
+            if sd_mult != 1:
+                sd = max(sd * sd_mult, fuelfreeze.SD_FLOOR)
             t = totals.setdefault((event.split("-")[0], tag),
                                   [set(), 0, 0, 0.0, 0.0, 0.0, 0.0, 0,
                                    [[0, 0, 0.0, 0.0] for _ in range(3)]])
@@ -641,14 +651,14 @@ def edges(days: int = 30, prefix: str = ""):
     names = (f"<{lo:.2f}", f"{lo:.2f}-{hi:.2f}", f">{hi:.2f}")
     for (series, tag), (evs, n, won, claimed, got, mine, board, m,
                         bands) in sorted(totals.items()):
-        print(f"# edges {series} {tag}: n={len(evs)} events, taken {n} (edge "
-              f">= {EDGE_MIN:.2f}), won {won}, claimed {claimed:+.2f} got "
+        print(f"# edges {series} {tag}{mult}: n={len(evs)} events, taken {n} "
+              f"(edge >= {EDGE_MIN:.2f}), won {won}, claimed {claimed:+.2f} got "
               f"{got:+.2f} per contract; Brier {mine:.4f} vs BOARD "
               f"{board:.4f} over {m} strikes")
         cells = [f"{name} taken {k} won {w} (said {said / k:.2f}) got "
                  f"{pnl:+.2f}" if k else f"{name} taken 0"
                  for name, (k, w, said, pnl) in zip(names, bands)]
-        print(f"# edges {series} {tag} by cost: " + " | ".join(cells))
+        print(f"# edges {series} {tag}{mult} by cost: " + " | ".join(cells))
 
 
 def main(argv: list[str]):
@@ -687,12 +697,16 @@ def main(argv: list[str]):
         print("\n".join(odds(argv[1], extra)))
         return
     if argv[:1] == ["edges"]:
-        days, rest = 30, argv[1:]
-        if rest[:1] == ["--days"] and len(rest) > 1:
-            days, rest = int(rest[1]), rest[2:]
-        if len(rest) > 1:
+        days, mult, rest = 30, 1.0, argv[1:]
+        while rest[:1] in (["--days"], ["--sd-mult"]) and len(rest) > 1:
+            if rest[0] == "--days":
+                days = int(rest[1])
+            else:
+                mult = float(rest[1])
+            rest = rest[2:]
+        if len(rest) > 1 or mult <= 0:
             sys.exit(__doc__)
-        edges(days, rest[0] if rest else "")
+        edges(days, rest[0] if rest else "", mult)
         return
     if argv[:1] == ["score"]:
         days, rest = 30, argv[1:]
