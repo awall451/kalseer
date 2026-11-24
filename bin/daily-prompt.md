@@ -317,6 +317,9 @@ Carry all of this in the relevant watchlist item:
   the price of the side taken (<0.25 / 0.25-0.75 / >0.75), with the
   forecaster's own mean P of winning ("said") beside how many won, so say
   which band a live edge sits in and quote that band, not just the pool.
+  `python3 kalshi/prereg.py edges --sd-mult K` replays the same trades with
+  every sd x K (lines tagged `(sd x0.50)`); quote a sweep before claiming a
+  tighter or wider sd would make the odds edges pay.
 - **Score all three the next day, in writing.** Keep a running error table
   (yours / baseline / market) with the per-day errors and the mean absolute
   error. Do this even where you had no position — especially there.
