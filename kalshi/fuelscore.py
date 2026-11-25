@@ -37,6 +37,14 @@ p90 / max and mean in cents, the three largest rises and falls with their
 dates, and with --need C (cents) how many windows moved at least C (a
 negative C counts falls of at least |C|), smoothed (hits + 0.5) / (n + 1).
 --since keeps windows starting on or after that day (a regime cut).
+
+--by-margin (regular/diesel, with --moves) adds the same windows in thirds
+by the retail-wholesale margin each started at (its first print minus the
+newest RB/HO front-month settle dated before it, as `futures.py margin`
+reads the futures journal): each third's margin range, n, median and --need
+hits, then the windows that started at or above the latest print's margin,
+or the widest start if none did. Brief 11/24 left "the 41.5c margin gap
+... say the fall accelerates" to judgment against a 0-of-56 move count.
 """
 
 import json
@@ -46,6 +54,7 @@ import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+import futures
 import kalshi
 
 DATA = pathlib.Path(os.environ.get("KALSEER_DATA_DIR",
@@ -60,6 +69,7 @@ WKDAY_MIN = 3
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 CENT = Decimal(100)
 SETTLED = {"regular": "KXAAAGASD", "diesel": "KXDIESELD"}
+MARGIN = {"regular": "rbob", "diesel": "ulsd"}  # futures journal per grade
 
 
 def series(grade: str) -> list[tuple[str, Decimal]]:
@@ -182,9 +192,85 @@ def print_moves(grade: str, prices: dict, k: int, since: str | None,
         print(f"# {name}: " + "  ".join(f"{c * CENT:+.2f}c {a}->{b}"
                                         for a, b, c in ws))
     if need is not None:
-        hit = sum(c >= need if need >= 0 else c <= need for c in ch)
+        hit = _hits(ch, need)
         print(f"# need {need * CENT:+.2f}c: {hit} of {len(ch)} windows "
               f"reached it (smoothed {(hit + 0.5) / (len(ch) + 1):.2f})")
+
+
+def start_margins(prices: dict, grade: str) -> dict[str, Decimal]:
+    """{day: print minus the newest settle dated before it} of the grade's
+    front month, as `futures.py margin` reads it; days with no settle
+    before them are left out."""
+    name = MARGIN[grade]
+    out = {}
+    for day, price in prices.items():
+        got = futures._settle_before(name, day)
+        if got and got[1] is not None:
+            out[day] = (price - Decimal(str(got[2]))).quantize(
+                Decimal("0.0001"))
+    return out
+
+
+def _hits(ch: list[Decimal], need: Decimal) -> int:
+    """Windows that moved at least `need` (a negative need counts falls)."""
+    return sum(c >= need if need >= 0 else c <= need for c in ch)
+
+
+def _band(ch: list[Decimal], need: Decimal | None) -> str:
+    text = f"n={len(ch)} median {_quantile(ch, 0.5) * CENT:+.2f}c"
+    if need is not None:
+        text += f" need {_hits(ch, need)}/{len(ch)}"
+    return text
+
+
+def print_by_margin(grade: str, prices: dict, k: int, since: str | None,
+                    need: Decimal | None):
+    """The k-print moves in thirds by the margin each window started at,
+    and the windows that started at or above the latest margin (brief
+    11/24: "the 41.5c margin gap ... say the fall accelerates", by
+    judgment)."""
+    got = moves(prices, k, since)
+    if not got:
+        return
+    root = futures.ROOTS[MARGIN[grade]]
+    margin = start_margins(prices, grade)
+    have = sorted(((margin[a], c, a) for a, _, c in got if a in margin),
+                  key=lambda w: w[0])
+    if not have:
+        print(f"# {grade} moves by start margin: no settled {root} closes "
+              f"before any window start")
+        return
+    n = len(have)
+    cells = []
+    for name, lo, hi in (("low", 0, n // 3), ("mid", n // 3, 2 * n // 3),
+                         ("high", 2 * n // 3, n)):
+        band = have[lo:hi]
+        if band:
+            cells.append(f"{name} {band[0][0]:.4f}..{band[-1][0]:.4f} "
+                         + _band([c for _, c, _ in band], need))
+    print(f"# {grade} {k}-print moves by start margin ({grade} - {root} "
+          f"front month; {n} of {len(got)} windows have a settle): "
+          + " | ".join(cells))
+    last = max(prices)
+    if last not in margin:
+        return
+    latest = margin[last]
+    above = [c for m, c, _ in have if m >= latest]
+    starts = sorted(a for m, _, a in have if m >= latest)
+    text = f"# {grade} latest margin {latest:.4f} ({last}): "
+    if above:
+        text += (f"{len(above)} of {n} windows started at or above it "
+                 f"(starts {starts[0]}..{starts[-1]}, overlapping): "
+                 f"median {_quantile(above, 0.5) * CENT:+.2f}c "
+                 f"min {min(above) * CENT:+.2f}c "
+                 f"max {max(above) * CENT:+.2f}c")
+        if need is not None:
+            text += f" need {_hits(above, need)}/{len(above)}"
+    else:
+        widest = have[-1]
+        text += (f"no window started at or above it (widest "
+                 f"{widest[0]:.4f} on {widest[2]})")
+    print(text)
 
 
 def main(argv: list[str]):
@@ -193,7 +279,11 @@ def main(argv: list[str]):
     grade, window, days, opts = argv[0], 5, 10, argv[1:]
     k = since = need = None
     use_settled = "--settled" in opts
-    opts = [o for o in opts if o != "--settled"]
+    by_margin = "--by-margin" in opts
+    opts = [o for o in opts if o not in ("--settled", "--by-margin")]
+    if by_margin and grade not in MARGIN:
+        sys.exit(f"--by-margin: no futures front month for {grade} "
+                 f"(only {', '.join(MARGIN)})")
     if use_settled and grade not in SETTLED:
         sys.exit(f"--settled: no daily series for {grade} "
                  f"(only {', '.join(SETTLED)})")
@@ -236,7 +326,11 @@ def main(argv: list[str]):
         if note:
             print(note)
         print_moves(grade, prices, k, since, need)
+        if by_margin:
+            print_by_margin(grade, prices, k, since, need)
         return
+    if by_margin:
+        sys.exit("--by-margin: only with --moves K")
     errs = {m: [] for m in MODELS}
     wins = dict.fromkeys(MODELS, 0)
     lines, wk = [], []

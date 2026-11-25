@@ -69,6 +69,12 @@ approval-blocked (proven live 9/27).
      (min / p10 / median / p90 / max, top rises and falls) and how many
      windows moved at least C cents (negative C: fell at least C); use it
      instead of counting k-day windows by hand before a weekly trade.
+     `--moves K --by-margin` (regular/diesel) adds the same windows in
+     thirds by the retail-wholesale margin each started at, plus the
+     windows that started at or above today's margin; quote that line
+     before arguing a wide margin breaks the move history. Its windows
+     overlap, so a tight `starts` span is one episode, not n independent
+     draws.
      The pipeline's `fuelfreeze` step freezes every open KXAAAGASD/W/M and
      KXDIESELD/W strike's bid/ask plus RW / MOM / DRIFT P(print > strike)
      (k-print normal) into `$DATA/aaa/fuel-freeze.jsonl`, and its log lines
