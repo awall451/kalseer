@@ -213,37 +213,50 @@ def service_note(found: list | None = None) -> str:
     return text
 
 
-# successor layers read per service: the skip path stays a few requests
+# successor layers and tables read per service: the skip path stays a few
+# requests
 MAX_LAYERS = 3
+# field names a lacking layer lists, so the log line stays readable
+MAX_FIELDS = 12
 
 
 def successor_note(name: str, found: list | None = None) -> str:
     """'NAME: layer ID TITLE has/lacks …' for a successor FeatureServer's
-    first MAX_LAYERS layers (11/10: Daily_Chokepoints_Data left the
-    directory, PortWatch_chokepoints_database appeared). Layers carrying
-    every QUERIED field go into `found`. Never fatal."""
+    first MAX_LAYERS layers, then tables (11/10: Daily_Chokepoints_Data left
+    the directory, PortWatch_chokepoints_database appeared). Layers carrying
+    every QUERIED field go into `found`; a lacking one lists the fields it
+    has. Never fatal."""
     base = f"{SERVICES_URL}/{name}/FeatureServer"
     body = None
     try:
         body = _get_json(base + "?f=json")
-        layers = body["layers"]
+        # a daily series has no geometry, so it may be a table (11/24)
+        layers = ([("layer", l) for l in body.get("layers") or []]
+                  + [("table", t) for t in body.get("tables") or []])
+        if "layers" not in body and "tables" not in body:
+            raise KeyError("layers")
     except Exception:
         return f"{name} unreadable{_arcgis_error(body)}"
     parts = []
-    for layer in layers[:MAX_LAYERS]:
+    for kind, layer in layers[:MAX_LAYERS]:
         lid, title = layer.get("id"), layer.get("name", "?")
         meta = None
         try:
             meta = _get_json(f"{base}/{lid}?f=json")
-            names = {f.get("name") for f in meta["fields"]}
+            fields = [f.get("name") for f in meta["fields"]]
         except Exception:
-            parts.append(f"layer {lid} {title} unreadable{_arcgis_error(meta)}")
+            parts.append(f"{kind} {lid} {title} unreadable{_arcgis_error(meta)}")
             continue
-        missing = [q for q in QUERIED if q not in names]
+        missing = [q for q in QUERIED if q not in fields]
         if missing:
-            parts.append(f"layer {lid} {title} lacks {', '.join(missing)}")
+            # what it does carry, so a fallback field can be mapped (11/24)
+            has = ", ".join(map(str, fields[:MAX_FIELDS]))
+            if len(fields) > MAX_FIELDS:
+                has += f", +{len(fields) - MAX_FIELDS} more"
+            parts.append(f"{kind} {lid} {title} lacks {', '.join(missing)} "
+                         f"(has {has})")
             continue
-        parts.append(f"layer {lid} {title} has {', '.join(QUERIED)}")
+        parts.append(f"{kind} {lid} {title} has {', '.join(QUERIED)}")
         if found is not None:
             found.append((f"{name}/FeatureServer/{lid}", f"{base}/{lid}"))
     if not parts:
