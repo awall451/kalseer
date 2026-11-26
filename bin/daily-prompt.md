@@ -181,6 +181,9 @@ approval-blocked (proven live 9/27).
    The pipeline's `portwatch` step journals Hormuz first prints and later
    revisions daily; `python3 kalshi/portwatch.py first [--since D]` reads
    them offline (no quota) — Kalshi settles on the first print.
+   The Hormuz base-rate table (weekly sums, mean, sd) is
+   `python3 kalshi/portwatch.py weeks [--since D]`: first-print sums per Mon-Sun week
+   (each tagged with its KXHORMUZWEEKLY event), so quote it instead of a hand table.
    An `arcgis error` is the server's answer, not your arguments (an unknown
    `--port` returns zero rows). `first` ends with the newest journaled day
    and its lag, flagged STALE when a weekly batch is overdue.

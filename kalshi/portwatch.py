@@ -13,6 +13,7 @@ verified working 8/9–8/24:
   python3 kalshi/portwatch.py archive [--port NAME]       # pipeline step
   python3 kalshi/portwatch.py archive --late   # again, only if today's skipped
   python3 kalshi/portwatch.py first [--since D] [--port NAME]  # offline
+  python3 kalshi/portwatch.py weeks [--since D] [--port NAME]  # offline
   python3 kalshi/portwatch.py news [DATA_DIR] [--today D]  # prompt header
 
 Source hazards this tool respects (watchlist, econ-data-source-hazards):
@@ -28,7 +29,10 @@ window rule gates on lag), not a fetch failure.
 appends to $DATA/portwatch/<port>.jsonl every day it hasn't seen (the first
 print, i.e. the settlement value) and every later change to a seen day
 (`revised_from`). `first` reads that journal back with no network and no
-quota: first and latest n_total per day, newest first. A successful archive
+quota: first and latest n_total per day, newest first. `weeks` sums the
+first prints per Mon-Sun week (KXHORMUZWEEKLY-<Sunday> settles on that
+sum), partial weeks marked, then the full weeks' mean, sd and range: the
+watchlist's hand "BASE-RATE TABLE" (11/25). A successful archive
 stamps today's UTC date in $DATA/portwatch/<port>.archived; `archive --late`
 (daily.sh, after the judgment step) queries only when today has no stamp,
 a second chance minutes after a morning that skipped on arcgis errors
@@ -53,6 +57,7 @@ import datetime
 import json
 import os
 import pathlib
+import statistics
 import sys
 import time
 import urllib.parse
@@ -402,6 +407,56 @@ def print_first(port: str, since: str | None):
     print(f"# {freshness(port)}")
 
 
+def print_weeks(port: str, since: str | None):
+    """First-print sums per Mon-Sun week, newest first (KXHORMUZWEEKLY-<Sun>
+    settles on that sum), then the full weeks' mean/sd/range: the Hormuz
+    base-rate table, until now hand-kept in the watchlist."""
+    rows = _read(port)
+    if not rows:
+        print(f"# no archive for {port} at {_journal(port)}")
+        return
+    first, seen = {}, {}
+    for r in rows:
+        first.setdefault(r["date"], r["n_total"])
+        seen.setdefault(r["date"], (r.get("seen_at") or "")[:10])
+    weeks, read = {}, {}
+    for d, n in first.items():
+        day = datetime.date.fromisoformat(d)
+        end = day + datetime.timedelta(days=6 - day.weekday())
+        weeks.setdefault(end, {})[day] = n
+        if seen[d]:
+            read[end] = max(read.get(end, ""), seen[d])
+    full = []
+    for end in sorted(weeks, reverse=True):
+        if since and end.isoformat() < since:
+            continue
+        label = end.isoformat()
+        if port == "Hormuz":
+            label += f"  KXHORMUZWEEKLY-{end.strftime('%y%b%d').upper()}"
+        days = weeks[end]
+        total = sum(days.values())
+        if len(days) < 7:
+            print(f"{label}  partial {len(days)} of 7 days, {total} so far")
+            continue
+        full.append(total)
+        line = (f"{label}  sum {total}  ("
+                + " ".join(str(days[k]) for k in sorted(days)) + ")")
+        # the journal began with a 10/17 backfill: a week first read long
+        # after a batch would have landed is our read, maybe not the first
+        late = (datetime.date.fromisoformat(read[end]) - end).days \
+            if end in read else 0
+        if late > DUE_DAYS:
+            line += (f"  first read {read[end]}, {late}d after the week "
+                     "ended")
+        print(line)
+    if full:
+        mean = sum(full) / len(full)
+        sd = (f"{statistics.stdev(full):.2f}" if len(full) > 1 else "-")
+        print(f"# n={len(full)} full weeks: mean {mean:.2f}, sd {sd}, "
+              f"min {min(full)}, max {max(full)}")
+    print(f"# {freshness(port)}")
+
+
 def news(data, today: str, port: str = "Hormuz") -> str:
     """A notice for the judgment prompt naming each Mon-Sun week whose last
     first print was journaled today or yesterday, or "" (11/11: week 8
@@ -459,7 +514,7 @@ def main(argv: list[str]):
         if note:
             print(note)
         return
-    if argv[:1] not in (["calls"], ["archive"], ["first"]):
+    if argv[:1] not in (["calls"], ["archive"], ["first"], ["weeks"]):
         sys.exit(__doc__)
     port, since, late, opts = "Hormuz", None, False, argv[1:]
     while opts:
@@ -536,6 +591,9 @@ def main(argv: list[str]):
         return
     if argv[0] == "first":
         print_first(port, since)
+        return
+    if argv[0] == "weeks":
+        print_weeks(port, since)
         return
     if since is None:
         since = (datetime.datetime.now(tz=datetime.timezone.utc).date()
