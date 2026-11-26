@@ -172,7 +172,10 @@ approval-blocked (proven live 9/27).
    It also freezes every open KXHORMUZWEEKLY week, so
    `econfreeze.py moves KXHORMUZWEEKLY` is the in-week board drift record
    (median by T-n) and `score KXHORMUZWEEKLY` grades it once settled; quote
-   those lines instead of a hand-kept drift tally.
+   those lines instead of a hand-kept drift tally. Whether the drift pointed
+   at the print is `score`'s `# EVENT median drift:` line (right/wrong
+   direction, overshot, closer) and its `# board median drift SERIES:` tally,
+   so an "IN-WEEK DRIFT RECORD 3-1 in direction" is that line, not a count.
    For IMF PortWatch chokepoint transit calls (Hormuz settlement):
    `python3 kalshi/portwatch.py calls [--since YYYY-MM-DD] [--port NAME]`
    prints daily n_total newest-first plus the newest published day and its

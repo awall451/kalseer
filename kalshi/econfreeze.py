@@ -34,7 +34,12 @@ the mean by days out across events. Unsettled events print as pending. Each
 settled event also gets `# EVENT settled V; board median miss (settled -
 median): T-n M ±miss …` (an off-ladder median is shown, not scored). A label
 expiration_value ('Above 0.2%') places each median below / in / above the
-bracket the results imply instead.
+bracket the results imply instead. A numeric one whose first and last
+freezes both have an on-ladder median also gets `# EVENT median drift: T-a
+M -> T-b M (move); settled V (need from T-a) -> right|wrong|flat direction[,
+overshot]; T-b closer|farther`, and a `# board median drift SERIES:` tally
+closes the output: the Hormuz "IN-WEEK DRIFT RECORD" (11/25: "right
+direction off T-9, but it overshot ... 3-1 in direction"), kept by hand.
 """
 
 import datetime as dt
@@ -253,6 +258,48 @@ def miss_line(event: str, rs: list[dict], markets: list[dict]) -> str:
             "that bracket: " + "  ".join(cells))
 
 
+def drift(event: str, rs: list[dict], markets: list[dict]):
+    """('# EVENT median drift: …', call) for a settled numeric event whose
+    first and last freezes both have an on-ladder median: did the drift
+    first -> last point at the print, overshoot it, and end closer? None
+    otherwise. `call` is (direction, overshot, closer)."""
+    raw = next((m.get("expiration_value") for m in markets
+                if m.get("expiration_value") not in (None, "")), None)
+    try:
+        actual = float(str(raw).rstrip("%"))
+    except ValueError:
+        return None
+    if len(rs) < 2:
+        return None
+    (s0, first), (s1, last) = median(rs[0]), median(rs[-1])
+    if first is None or last is None or s0 or s1:
+        return None
+    whole = _whole(rs)
+    moved, need = last - first, actual - first
+    direction = ("flat" if not moved or not need
+                 else "right" if (moved > 0) == (need > 0) else "wrong")
+    overshot = direction == "right" and abs(moved) > abs(need)
+    closer = abs(actual - last) < abs(need)
+    a, b = f"T-{rs[0]['days_out']}", f"T-{rs[-1]['days_out']}"
+    return (f"# {event} median drift: {a} {_num(first, whole)} -> {b} "
+            f"{_num(last, whole)} ({_num(moved, whole, '+')}); settled "
+            f"{str(raw).rstrip('%')} ({_num(need, whole, '+')} from {a}) -> "
+            f"{direction} direction" + (", overshot" if overshot else "")
+            + f"; {b} {'closer' if closer else 'farther'}",
+            (direction, overshot, closer))
+
+
+def drift_line(series: str, calls: list[tuple]) -> str:
+    """'# board median drift SERIES: …', the hand 'IN-WEEK DRIFT RECORD'."""
+    dirs = [c[0] for c in calls]
+    near = sum(c[2] for c in calls)
+    return (f"# board median drift {series}: n={len(calls)}, right direction "
+            f"{dirs.count('right')}, wrong {dirs.count('wrong')}, flat "
+            f"{dirs.count('flat')}; overshot {sum(c[1] for c in calls)}; "
+            f"last freeze closer than the first {near}, farther "
+            f"{len(calls) - near}")
+
+
 def _matches(event: str, prefix: str) -> bool:
     """A bare series name is that series only: KXCPI is a text prefix of
     KXCPICORE/KXCPIYOY/KXCPICOREYOY (brief 11/6 read the wrong board). With a
@@ -300,7 +347,7 @@ def score(prefix: str | None = None):
     if not events:
         print(_none(prefix))
         return
-    by_out = {}
+    by_out, drifts = {}, {}
     for event, rs in events.items():
         settled = kalshi.get_event(event).get("markets") or []
         result = {_strike(m.get("ticker") or ""): m.get("result")
@@ -319,9 +366,15 @@ def score(prefix: str | None = None):
             print(f"{event}  T-{r['days_out']}  BOARD B {brier:.4f} "
                   f"({len(pairs)} strikes)")
         print(miss_line(event, rs, settled))
+        found = drift(event, rs, settled)
+        if found:
+            print(found[0])
+            drifts.setdefault(event.split("-", 1)[0], []).append(found[1])
     for k in sorted(by_out, key=lambda x: (x is None, -(x or 0))):
         v = by_out[k]
         print(f"# T-{k}: n={len(v)} mean B {sum(v) / len(v):.4f}")
+    for series in sorted(drifts):
+        print(drift_line(series, drifts[series]))
 
 
 def main(argv: list[str]):
