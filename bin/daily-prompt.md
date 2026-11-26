@@ -299,6 +299,9 @@ Carry all of this in the relevant watchlist item:
   journal print even before Kalshi settles it (gas/diesel ladders too).
   A KXHORMUZWEEKLY pre-reg likewise scores off the PortWatch journal's
   first-print week sum once all 7 days are published.
+  A record counted from a given week (a revival rule "counted from week 10")
+  is `python3 kalshi/prereg.py score --since 2026-11-18 KXHORMUZWEEKLY`: only rows frozen
+  on or after that date, so quote its summary's wins instead of keeping a counter by hand.
   When you pass and write a test ("TEST: >= 5.935 -> MINE/MOM right; <=
   5.930 -> board/WKDAY right"), freeze it too with
   `python3 kalshi/prereg.py test EVENT TEST 5.935=MINE/MOM 5.930=BOARD/WKDAY`

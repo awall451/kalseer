@@ -6,7 +6,7 @@ then a hand Brier sum days later. This journals the probabilities with the
 board they were made against, timestamped, and does the sums.
 
   python3 kalshi/prereg.py add EVENT LEG STRIKE=P [STRIKE=P ...]
-  python3 kalshi/prereg.py score [--days N] [PREFIX]
+  python3 kalshi/prereg.py score [--days N] [--since DATE] [PREFIX]
 
 `add` reads the event's board and appends one row to $DATA/preregs.jsonl:
 P(YES) per market (STRIKE is the ticker's last part: 57 for KXRT-SOC-57,
@@ -20,6 +20,10 @@ needs a new leg name (MINE2).
 the newest; optionally only events starting with PREFIX) and once every priced
 strike has settled prints the leg's Brier sum and the frozen board's (mids)
 over the same strikes, and the winner. A per-leg summary closes it.
+`--since DATE` keeps only rows frozen on or after DATE, so a record counted
+from a given week (the Hormuz revival rule, "MINE beats board on >= 3 of the
+next 4 scored weeks, counted from week 10", until now a hand counter) is the
+summary's wins line.
 
   python3 kalshi/prereg.py point EVENT LEG VALUE
   python3 kalshi/prereg.py test EVENT LEG ABOVE=SIDE BELOW=SIDE
@@ -85,7 +89,7 @@ import math
 import os
 import pathlib
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 import fuelfreeze
@@ -315,15 +319,17 @@ def _mid(quote) -> float | None:
     return kalshi.board_mid(quote[0], quote[1])
 
 
-def score(days: int = 30, prefix: str = ""):
-    todo = [r for r in rows() if r["event"].startswith(prefix)]
+def score(days: int = 30, prefix: str = "", start: str = ""):
+    todo = [r for r in rows() if r["event"].startswith(prefix)
+            and r["at"][:10] >= start]
     if todo:
         since = (datetime.fromisoformat(max(r["at"] for r in todo))
                  - timedelta(days=days)).isoformat()
         todo = [r for r in todo if r["at"] >= since]
     if not todo:
         print(f"# no pre-regs in {JOURNAL}"
-              + (f" for {prefix}" if prefix else ""))
+              + (f" for {prefix}" if prefix else "")
+              + (f" since {start}" if start else ""))
         return
     boards, lines, totals, points, tests = {}, [], {}, {}, []
     for r in todo:
@@ -709,12 +715,19 @@ def main(argv: list[str]):
         edges(days, rest[0] if rest else "", mult)
         return
     if argv[:1] == ["score"]:
-        days, rest = 30, argv[1:]
-        if rest[:1] == ["--days"] and len(rest) > 1:
-            days, rest = int(rest[1]), rest[2:]
+        days, start, rest = 30, "", argv[1:]
+        while rest[:1] in (["--days"], ["--since"]) and len(rest) > 1:
+            if rest[0] == "--days":
+                days = int(rest[1])
+            else:
+                try:
+                    start = date.fromisoformat(rest[1]).isoformat()
+                except ValueError:
+                    sys.exit(__doc__)
+            rest = rest[2:]
         if len(rest) > 1:
             sys.exit(__doc__)
-        score(days, rest[0] if rest else "")
+        score(days, rest[0] if rest else "", start)
         return
     sys.exit(__doc__)
 
