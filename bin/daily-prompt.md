@@ -201,6 +201,11 @@ approval-blocked (proven live 9/27).
    reversion` line (newest front-month settle + the window's mean margin, with
    the min..max band and the gap to the latest print; widen the window with
    `--days`) instead of adding a remembered margin to a settle.
+   Before setting that level against DRIFT or MOM ("reversion says YES"),
+   run `python3 kalshi/futures.py margin --ahead K` (K = prints to the
+   settle) and quote its `# gas reversion record` / `# diesel reversion
+   record` line: the level's past K-print MAE vs RW, and how often the
+   print moved toward it from each side.
    For the wholesale driver behind a gas/diesel board move:
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw

@@ -35,6 +35,11 @@ margin reversion' / '# diesel margin reversion' line adds the window's mean
 margin (and its min..max) to the newest settle of the month front after the
 last print: the retail level a margin back at its mean implies (brief 11/18,
 by hand: "RBZ26 2.5349 + mean margin 1.1239 = 3.66"), against the latest print.
+`margin --ahead K` adds a '# gas reversion record' / '# diesel reversion
+record' line: every print's level as of that print (same --days window)
+scored against the print K days later, next to RW, and how often the print
+moved toward the level from below it and from above it. Watchlist 11/26
+set the level against DRIFT ("model-dependent") with no record of either.
 
 Newest first, one row per trading day with the day-over-day change. Rows are
 dated by the exchange's trading day. 'latest' marks the newest bar, and
@@ -316,6 +321,57 @@ def print_margin(days: int):
               f"{latest:.4f} ({round(implied - latest, 4) + 0.0:+.4f})")
 
 
+def reversion_at(name: str, prints: dict, day: str, days: int) -> float | None:
+    """The margin-reversion level as `margin` would have printed it on
+    `day`: the mean margin over the last `days` prints up to it, plus the
+    newest settle of the month front after it (None if either is missing)."""
+    margins = []
+    for d in [d for d in sorted(prints) if d <= day][-days:]:
+        got = _settle_before(name, d)
+        if got and got[1] is not None:
+            margins.append(round(prints[d] - got[2], 4))
+    after = datetime.date.fromisoformat(day) + datetime.timedelta(1)
+    settle = _settle_before(name, after.isoformat())
+    if not margins or not settle or settle[1] is None:
+        return None
+    return round(settle[2] + sum(margins) / len(margins), 4)
+
+
+def print_reversion_record(days: int, ahead: int):
+    """Each print's reversion level scored against the print `ahead` days
+    later, next to RW (watchlist 11/26: "Reversion 3.5799 says YES, DRIFT
+    x4 ~3.472 says NO -> model-dependent", with no record of either)."""
+    for fuel, grade, name in MARGIN:
+        prints = _prints(grade)
+        rows = []  # (origin, print, level, print `ahead` days on)
+        for day in sorted(prints):
+            on = (datetime.date.fromisoformat(day)
+                  + datetime.timedelta(ahead)).isoformat()
+            level = on in prints and reversion_at(name, prints, day, days)
+            if level:
+                rows.append((day, prints[day], level, prints[on]))
+        head = f"# {fuel} reversion record ({ahead} prints ahead, window {days}): "
+        if not rows:
+            print(head + f"no origin has a print {ahead} days on")
+            continue
+        lvl = [round(abs(a - v) * 100, 2) for _, _, v, a in rows]
+        rw = [round(abs(a - p) * 100, 2) for _, p, _, a in rows]
+        toward = {s: [(a - p) * s > 0 for _, p, v, a in rows
+                      if (v - p) * s > 0] for s in (1, -1)}
+        last = "  ".join(
+            f"{d[5:]} {p:.4f} lvl {v:.4f} -> {a:.4f} "
+            + ("toward" if (a - p) * (v - p) > 0 else "away")
+            for d, p, v, a in reversed(rows[-3:]))
+        print(head + f"n={len(rows)} level MAE {sum(lvl) / len(rows):.3f}c "
+              f"vs RW MAE {sum(rw) / len(rows):.3f}c (level closer "
+              f"{sum(a < b for a, b in zip(lvl, rw))}, RW closer "
+              f"{sum(a > b for a, b in zip(lvl, rw))}, tied "
+              f"{sum(a == b for a, b in zip(lvl, rw))}); started below the "
+              f"level: moved toward it {sum(toward[1])} of {len(toward[1])}; "
+              f"above it: toward {sum(toward[-1])} of {len(toward[-1])}; "
+              f"last {min(3, len(rows))} newest first: {last}")
+
+
 def _main_archive(argv: list[str]):
     if argv[:1] == ["archive"] and len(argv) == 1:
         failed = []
@@ -373,12 +429,18 @@ def _main_archive(argv: list[str]):
         print_first(argv[1], since)
         return
     if argv[:1] == ["margin"]:
-        days = 15
-        if argv[1:2] == ["--days"] and len(argv) == 3 and argv[2].isdigit():
-            days = int(argv[2])
-        elif argv[1:]:
+        opts = {"--days": 15, "--ahead": None}
+        rest = argv[1:]
+        while rest:
+            if rest[0] not in opts or len(rest) < 2 or not rest[1].isdigit():
+                sys.exit(__doc__)
+            opts[rest[0]] = int(rest[1])
+            rest = rest[2:]
+        if opts["--ahead"] == 0 or opts["--days"] == 0:
             sys.exit(__doc__)
-        print_margin(days)
+        print_margin(opts["--days"])
+        if opts["--ahead"]:
+            print_reversion_record(opts["--days"], opts["--ahead"])
         return
     sys.exit(__doc__)
 
