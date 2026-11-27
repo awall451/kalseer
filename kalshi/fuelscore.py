@@ -38,6 +38,12 @@ dates, and with --need C (cents) how many windows moved at least C (a
 negative C counts falls of at least |C|), smoothed (hits + 0.5) / (n + 1).
 --since keeps windows starting on or after that day (a regime cut).
 
+--ahead K races the same models K prints out (the weekly/monthly settle
+print): each row scores the forecast made K days before it, MOM and DRIFT
+carrying their one-day step K times, and '# next' is dated K days ahead.
+WKDAY (a one-print model) and the drift bar are left out. Watchlist 11/26
+projected "DRIFT x4 ~3.472" and "MOM path ~5.565" by hand, with no record.
+
 --by-margin (regular/diesel, with --moves) adds the same windows in thirds
 by the retail-wholesale margin each started at (its first print minus the
 newest RB/HO front-month settle dated before it, as `futures.py margin`
@@ -111,15 +117,16 @@ def _changes(prices: dict, day: str, n: int) -> list[Decimal] | None:
     return [b - a for a, b in zip(run, run[1:])]
 
 
-def forecasts(prices: dict, day: str, window: int) -> dict:
-    """Each model's forecast for the day after `day` (None if unscorable)."""
+def forecasts(prices: dict, day: str, window: int, k: int = 1) -> dict:
+    """Each model's forecast for the print k days after `day` (None if
+    unscorable): MOM and DRIFT carry their one-day step k times."""
     last = prices.get(day)
     if last is None:
         return dict.fromkeys(MODELS)
     mom, drift = _changes(prices, day, 1), _changes(prices, day, window)
     return {"RW": last,
-            "MOM": last + mom[0] if mom else None,
-            "DRIFT": last + sum(drift) / window if drift else None}
+            "MOM": last + k * mom[0] if mom else None,
+            "DRIFT": last + k * sum(drift) / window if drift else None}
 
 
 def wkday(prices: dict, day: str) -> Decimal | None:
@@ -276,7 +283,7 @@ def print_by_margin(grade: str, prices: dict, k: int, since: str | None,
 def main(argv: list[str]):
     if not argv or argv[0] not in GRADES:
         sys.exit(__doc__)
-    grade, window, days, opts = argv[0], 5, 10, argv[1:]
+    grade, window, days, ahead, opts = argv[0], 5, 10, 1, argv[1:]
     k = since = need = None
     use_settled = "--settled" in opts
     by_margin = "--by-margin" in opts
@@ -288,12 +295,15 @@ def main(argv: list[str]):
         sys.exit(f"--settled: no daily series for {grade} "
                  f"(only {', '.join(SETTLED)})")
     while opts:
-        if (opts[0] in ("--window", "--days", "--moves", "--since", "--need")
+        if (opts[0] in ("--window", "--days", "--moves", "--since", "--need",
+                        "--ahead")
                 and len(opts) > 1):
             if opts[0] == "--window":
                 window = int(opts[1])
             elif opts[0] == "--days":
                 days = int(opts[1])
+            elif opts[0] == "--ahead":
+                ahead = int(opts[1])
             elif opts[0] == "--moves":
                 k = int(opts[1])
             elif opts[0] == "--since":
@@ -305,6 +315,10 @@ def main(argv: list[str]):
             sys.exit(__doc__)
     if k is not None and k < 1:
         sys.exit("--moves: K must be at least 1")
+    if ahead < 1:
+        sys.exit("--ahead: K must be at least 1")
+    if ahead > 1 and k is not None:
+        sys.exit("--ahead: not with --moves")
     rows = series(grade)
     note = None
     if use_settled:
@@ -335,14 +349,16 @@ def main(argv: list[str]):
     wins = dict.fromkeys(MODELS, 0)
     lines, wk = [], []
     for day, actual in rows[1:]:
-        fc = forecasts(prices, _back(day, 1), window)
-        w = wkday(prices, _back(day, 1))
+        fc = forecasts(prices, _back(day, ahead), window, ahead)
+        # WKDAY is a one-print model; --ahead K races only RW / MOM / DRIFT
+        w = wkday(prices, _back(day, 1)) if ahead == 1 else None
         parts = [day, f"{actual}"]
         for m in MODELS:
             parts.append(f"{m} -" if fc[m] is None else
                          f"{m} {fc[m]:.4f} {(actual - fc[m]) * CENT:+.2f}")
-        parts.append("WKDAY -" if w is None else
-                     f"WKDAY {w:.4f} {(actual - w) * CENT:+.2f}")
+        if ahead == 1:
+            parts.append("WKDAY -" if w is None else
+                         f"WKDAY {w:.4f} {(actual - w) * CENT:+.2f}")
         lines.append("  ".join(parts))
         if w is not None and fc["MOM"] is not None:
             wk.append((abs(actual - w) * CENT, abs(actual - fc["MOM"]) * CENT,
@@ -359,11 +375,17 @@ def main(argv: list[str]):
         print(note)
     n = len(errs["RW"])
     if n:
-        print(f"# n={n} ({grade}, window {window}): " + "  ".join(
-            f"{m} MAE {sum(errs[m]) / n:.3f}c wins {wins[m]}" for m in MODELS))
+        print(f"# n={n} ({grade}, window {window}"
+              + (f", ahead {ahead}" if ahead > 1 else "") + "): "
+              + "  ".join(f"{m} MAE {sum(errs[m]) / n:.3f}c wins {wins[m]}"
+                          for m in MODELS))
     last = rows[-1][0]
-    fc = forecasts(prices, last, window)
+    fc = forecasts(prices, last, window, ahead)
     nxt = [f"{m} {fc[m]:.4f}" for m in MODELS if fc[m] is not None]
+    if ahead > 1:
+        print(f"# next {_back(last, -ahead)} ({ahead} prints ahead of "
+              f"{last}): " + "  ".join(nxt))
+        return
     bar = _bar(prices, last, window)
     print(f"# next {_back(last, -1)}: " + "  ".join(nxt)
           + (f" | {bar}" if bar else ""))
