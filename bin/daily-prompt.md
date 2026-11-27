@@ -69,6 +69,10 @@ approval-blocked (proven live 9/27).
      (min / p10 / median / p90 / max, top rises and falls) and how many
      windows moved at least C cents (negative C: fell at least C); use it
      instead of counting k-day windows by hand before a weekly trade.
+     `--ahead K` races RW / MOM / DRIFT K prints out (K = prints until a
+     weekly/monthly settle) and prints each model's K-print path on
+     `# next`; quote it and its `# n=` record instead of "DRIFT xK" or
+     "MOM path" arithmetic by hand.
      `--moves K --by-margin` (regular/diesel) adds the same windows in
      thirds by the retail-wholesale margin each started at, plus the
      windows that started at or above today's margin; quote that line
