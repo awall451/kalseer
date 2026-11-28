@@ -210,6 +210,9 @@ approval-blocked (proven live 9/27).
    settle) and quote its `# gas reversion record` / `# diesel reversion
    record` line: the level's past K-print MAE vs RW, and how often the
    print moved toward it from each side.
+   A softer "below the level, so the fall slows" hint is its `# gas reversion slowdown`
+   line: after each K-print fall, how often the next K fell slower or rose,
+   below the level vs above it (the control); quote both sides, not one slowdown.
    For the wholesale driver behind a gas/diesel board move:
    `python3 kalshi/futures.py closes rbob|ulsd|wti|brent [--days N]` prints
    dated daily front-month closes newest-first with the day change (a raw

@@ -370,6 +370,31 @@ def print_reversion_record(days: int, ahead: int):
               f"level: moved toward it {sum(toward[1])} of {len(toward[1])}; "
               f"above it: toward {sum(toward[-1])} of {len(toward[-1])}; "
               f"last {min(3, len(rows))} newest first: {last}")
+        print_slowdown(fuel, prints, rows, days, ahead)
+
+
+def print_slowdown(fuel: str, prints: dict, rows: list, days: int,
+                   ahead: int):
+    """After each `ahead`-print fall, whether the next `ahead` prints fell
+    slower or rose, for prints below the level against prints above it
+    (brief 11/27: "use the level only as a 'fall slows' hint", unscored)."""
+    sides = {1: [], -1: []}  # level above the print (print below it), under
+    for day, p, v, a in rows:
+        before = (datetime.date.fromisoformat(day)
+                  - datetime.timedelta(ahead)).isoformat()
+        if before in prints and p < prints[before] and v != p:
+            sides[1 if v > p else -1].append(
+                (round((a - p) * 100, 2), round((p - prints[before]) * 100, 2)))
+
+    def tally(got):
+        out = f"{sum(n > last for n, last in got)} of {len(got)}"
+        if got:
+            out += (f" (next {sum(n for n, _ in got) / len(got):.2f}c vs last "
+                    f"{sum(last for _, last in got) / len(got):.2f}c)")
+        return out
+    print(f"# {fuel} reversion slowdown ({ahead} prints ahead, window {days}): "
+          f"after a {ahead}-print fall, the next {ahead} fell slower or rose: "
+          f"below the level {tally(sides[1])}; above it {tally(sides[-1])}")
 
 
 def _main_archive(argv: list[str]):
