@@ -312,6 +312,10 @@ Carry all of this in the relevant watchlist item:
   `python3 kalshi/prereg.py point EVENT MINE 4.2530`; for KXAAAGASD/KXDIESELD
   `score` races it against fuelscore's RW / MOM / DRIFT for you, off today's
   journal print even before Kalshi settles it (gas/diesel ladders too).
+  Any other point (an RT "RW = current score", a payrolls centre) is journaled with the
+  event's `# board centre`, and `score` races the two: freeze the RT RW with
+  `python3 kalshi/prereg.py point KXRT-FOC RW 31` and quote its `-> ` call and the
+  `# RW point KXRT: ... vs BOARD` line instead of a prose "score finals vs RW and the board".
   A KXHORMUZWEEKLY pre-reg likewise scores off the PortWatch journal's
   first-print week sum once all 7 days are published.
   A record counted from a given week (a revival rule "counted from week 10")

@@ -34,7 +34,11 @@ the same one-row-per-EVENT+LEG rule; it refuses an event whose markets have
 all closed. `score` prints its error (actual - forecast). For KXAAAGASD /
 KXDIESELD it adds fuelscore's RW / MOM / DRIFT forecasts of the same print
 (off the journal, window 5) and the closest; the summary gives each one's MAE
-and "best" count over those rows (ties count for each).
+and "best" count over those rows (ties count for each). Any other event's
+point is journaled with its `# board centre` (a 'greater' ladder crossing on
+the ladder), and `score` races the leg against that BOARD: the closer per row
+and a "vs BOARD" head-to-head in the summary (the RT ledger's "score finals
+vs RW and the board", until now prose).
 
 `test` freezes a pass's two-sided falsifier, which until now was rewritable
 prose resolved by hand (11/18: "TEST: >= 5.935 -> MINE/MOM right; <= 5.930 ->
@@ -156,6 +160,10 @@ def point(event: str, leg: str, value: str, now: datetime | None = None):
     rec = {"event": event, "leg": leg,
            "at": now.isoformat(timespec="seconds"), "point": value,
            "board": board}
+    # the '# board centre' it was frozen against, when on a 'greater' ladder
+    line = kalshi.centre_line(list(markets.values()))
+    if line and _num(centre := line.split(": ", 1)[1]) is not None:
+        rec["centre"] = centre
     JOURNAL.parent.mkdir(parents=True, exist_ok=True)
     with JOURNAL.open("a") as f:
         f.write(json.dumps(rec) + "\n")
@@ -394,6 +402,13 @@ def score(days: int = 30, prefix: str = "", start: str = ""):
                 f"best {sum(min(e.values()) == e[m] for e in t['race'])}"
                 for m in names))
             line += "; " + _vs_mom(leg, t["race"])
+        if t["board"]:
+            b = t["board"]
+            line += (f"; vs BOARD on n={len(b)}: BOARD MAE "
+                     f"{_mae([e['BOARD'] for e in b])}; {leg} closer "
+                     f"{sum(e[leg] < e['BOARD'] for e in b)}, BOARD closer "
+                     f"{sum(e['BOARD'] < e[leg] for e in b)}, tied "
+                     f"{sum(e['BOARD'] == e[leg] for e in b)}")
         print(line)
     if tests:
         won = [w for w in tests if w not in (None, "")]
@@ -435,19 +450,24 @@ def _score_point(r: dict, result: dict, head: str, points: dict) -> str:
     models = _fuel_models(r["event"])
     if models:
         actual = actual.quantize(Decimal("0.0001"))
-    fc = {r["leg"]: _num(r["point"]), **models}
+    # non-fuel: race the frozen board centre (fuelfreeze scores the fuel one)
+    board = ({} if models or r.get("centre") is None
+             else {"BOARD": _num(r["centre"])})
+    fc = {r["leg"]: _num(r["point"]), **models, **board}
     err = {m: actual - f for m, f in fc.items()}
     t = points.setdefault((r["leg"], r["event"].split("-")[0]),
-                          {"err": [], "race": []})
+                          {"err": [], "race": [], "board": []})
     t["err"].append(abs(err[r["leg"]]))
     if models:
         t["race"].append({m: abs(e) for m, e in err.items()})
+    if board:
+        t["board"].append({m: abs(e) for m, e in err.items()})
     best = min(abs(e) for e in err.values())
     win = " ".join(m for m, e in err.items() if abs(e) == best)
     fmt = ".4f" if models else "f"  # fuel: AAA's 4 places
     return (f"{head}  = {actual}  " + "  ".join(
         f"{m} {fc[m]:{fmt}} err {e:+{fmt}}" for m, e in err.items())
-        + (f"  -> {win}" if models else "") + source)
+        + (f"  -> {win}" if models or board else "") + source)
 
 
 def _settled_value(r: dict, result: dict):
